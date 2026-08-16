@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import * as XLSX from 'xlsx';
+import { supabase } from '@/lib/supabase';
 
 type AdminTab = 'upload' | 'subscribers' | 'suggestions';
 
@@ -37,10 +39,15 @@ export default function AdminPage() {
   const [subscribers] = useState<Subscriber[]>(MOCK_SUBSCRIBERS);
   const [suggestions, setSuggestions] = useState<Suggestion[]>(MOCK_SUGGESTIONS);
 
+  // Form input states
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [targetCompany, setTargetCompany] = useState('CBZ Holdings');
+  const [targetCompany, setTargetCompany] = useState('CABS');
+  const [targetTicker, setTargetTicker] = useState('CABS.zw');
   const [targetCountry, setTargetCountry] = useState('Zimbabwe');
-  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [targetSector, setTargetSector] = useState('Banking & Financial Services');
+  
+  // Status & loading states
+  const [uploadStatus, setUploadStatus] = useState<{ message: string; isError?: boolean } | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -50,18 +57,152 @@ export default function AdminPage() {
     }
   };
 
-  const handleUploadSubmit = (e: React.FormEvent) => {
+  const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFile) return;
 
     setIsUploading(true);
     setUploadStatus(null);
 
-    setTimeout(() => {
-      setIsUploading(false);
-      setUploadStatus(`Successfully parsed "${selectedFile.name}" and imported statements for ${targetCompany} (${targetCountry}).`);
+    try {
+      // 1. Read Excel file into an ArrayBuffer
+      const buffer = await selectedFile.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+
+      // 2. Check if company exists in Supabase or create new entity
+      const { data: existingCompany } = await supabase
+        .from('companies')
+        .select('id')
+        .ilike('name', targetCompany)
+        .maybeSingle();
+
+      let companyId = existingCompany?.id;
+
+      if (!companyId) {
+        const { data: newCompany, error: createErr } = await supabase
+          .from('companies')
+          .insert({
+            name: targetCompany,
+            ticker: targetTicker,
+            country: targetCountry,
+            sector: targetSector,
+            currency: 'USD / ZWG',
+          })
+          .select('id')
+          .single();
+
+        if (createErr) throw new Error(`Failed to create company: ${createErr.message}`);
+        companyId = newCompany.id;
+      }
+
+      // 3. Normalized Sheet Tab Mapping
+      const tabMap: Record<string, string> = {
+        pnl: 'pnl',
+        'income statement': 'pnl',
+        'p&l': 'pnl',
+        bs: 'bs',
+        'balance sheet': 'bs',
+        cf: 'cf',
+        'cash flow': 'cf',
+        soce: 'soce',
+        'statement of changes in equity': 'soce',
+      };
+
+      const statementEntries: Array<{
+        company_id: string;
+        statement_type: string;
+        line_item: string;
+        fiscal_year: string;
+        amount: number;
+        is_header: boolean;
+        is_total: boolean;
+        indent: boolean;
+      }> = [];
+
+      // 4. Iterate through workbook tabs
+      for (const sheetName of workbook.SheetNames) {
+        const normalizedName = sheetName.trim().toLowerCase();
+        const statementType = tabMap[normalizedName];
+
+        if (!statementType) continue; // Skip non-matching sheets
+
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+        if (jsonRows.length < 2) continue;
+
+        // Header row (Line Item, 2021, 2022, 2023, etc.)
+        const headerRow = jsonRows[0].map((cell) => String(cell || '').trim());
+        const yearColumns: Array<{ year: string; colIndex: number }> = [];
+
+        headerRow.forEach((colName, idx) => {
+          if (idx > 0 && colName) {
+            const yearMatch = colName.match(/\d{4}/);
+            const year = yearMatch ? yearMatch[0] : colName;
+            yearColumns.push({ year, colIndex: idx });
+          }
+        });
+
+        // Clear existing financial statement rows for this company & statement type to prevent duplicates
+        await supabase
+          .from('financial_statements')
+          .delete()
+          .eq('company_id', companyId)
+          .eq('statement_type', statementType);
+
+        // Process line items
+        for (let r = 1; r < jsonRows.length; r++) {
+          const row = jsonRows[r];
+          if (!row || !row[0]) continue;
+
+          const rawLabel = String(row[0]);
+          if (!rawLabel.trim()) continue;
+
+          const isHeader = rawLabel.toUpperCase() === rawLabel && !row.some((val, i) => i > 0 && val !== '');
+          const isTotal = rawLabel.toLowerCase().includes('total') || rawLabel.toLowerCase().includes('profit');
+          const indent = rawLabel.startsWith(' ') || rawLabel.startsWith('\t');
+
+          yearColumns.forEach(({ year, colIndex }) => {
+            const rawVal = row[colIndex];
+            const numericVal = rawVal !== undefined && rawVal !== null && rawVal !== '' ? Number(rawVal) : 0;
+
+            statementEntries.push({
+              company_id: companyId,
+              statement_type: statementType,
+              line_item: rawLabel.trim(),
+              fiscal_year: year,
+              amount: isNaN(numericVal) ? 0 : numericVal,
+              is_header: isHeader,
+              is_total: isTotal,
+              indent,
+            });
+          });
+        }
+      }
+
+      if (statementEntries.length === 0) {
+        throw new Error('No matching tabs found. Ensure sheet names are P&L, BS, CF, or SOCE.');
+      }
+
+      // 5. Batch insert data into Supabase
+      const { error: insertErr } = await supabase
+        .from('financial_statements')
+        .insert(statementEntries);
+
+      if (insertErr) throw new Error(`Database upload failed: ${insertErr.message}`);
+
+      setUploadStatus({
+        message: `Successfully uploaded ${selectedFile.name}! Created/Updated ${targetCompany} (${targetCountry}) in Supabase with ${statementEntries.length} data points.`,
+      });
       setSelectedFile(null);
-    }, 1500);
+    } catch (err: any) {
+      setUploadStatus({
+        message: err.message || 'An error occurred during upload.',
+        isError: true,
+      });
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const toggleSuggestionStatus = (id: string) => {
@@ -111,7 +252,7 @@ export default function AdminPage() {
                 : 'border-transparent text-[#667085] hover:text-[#1E2430]'
             }`}
           >
-            📊 Upload Financial Spreads (Excel)
+            📊 Upload Financial Spreads (Excel to Supabase)
           </button>
           <button
             onClick={() => setActiveTab('subscribers')}
@@ -135,18 +276,41 @@ export default function AdminPage() {
           </button>
         </div>
 
-        {/* TAB 1: EXCEL UPLOAD */}
+        {/* TAB 1: EXCEL UPLOAD TO SUPABASE */}
         {activeTab === 'upload' && (
           <div className="bg-[#F8FAFC] border border-gray-200 p-6 rounded-xl max-w-2xl shadow-sm">
-            <h2 className="text-xl font-bold text-[#1E2430] mb-1">Import Excel Financial Spreads</h2>
+            <h2 className="text-xl font-bold text-[#1E2430] mb-1">Import Excel Spreads to Supabase</h2>
             <p className="text-xs text-[#667085] mb-6">
-              Upload an Excel workbook containing standardized tabs (<code className="text-[#0F8B8D]">P&L</code>, <code className="text-[#0F8B8D]">BS</code>, <code className="text-[#0F8B8D]">CF</code>, <code className="text-[#0F8B8D]">SOCE</code>) to update the live dataset.
+              Upload an Excel workbook containing standardized tabs (<code className="text-[#0F8B8D]">P&L</code>, <code className="text-[#0F8B8D]">BS</code>, <code className="text-[#0F8B8D]">CF</code>, <code className="text-[#0F8B8D]">SOCE</code>).
             </p>
 
             <form onSubmit={handleUploadSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-semibold text-[#667085] block mb-1">Target Country</label>
+                  <label className="text-xs font-semibold text-[#667085] block mb-1">Company Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={targetCompany}
+                    onChange={(e) => setTargetCompany(e.target.value)}
+                    className="w-full px-3 py-2 rounded bg-white border border-gray-300 text-xs text-[#1E2430] focus:outline-none focus:border-[#2F6FED]"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-[#667085] block mb-1">Ticker Symbol</label>
+                  <input
+                    type="text"
+                    required
+                    value={targetTicker}
+                    onChange={(e) => setTargetTicker(e.target.value)}
+                    className="w-full px-3 py-2 rounded bg-white border border-gray-300 text-xs text-[#1E2430] focus:outline-none focus:border-[#2F6FED]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-[#667085] block mb-1">Country</label>
                   <input
                     type="text"
                     required
@@ -156,12 +320,12 @@ export default function AdminPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-[#667085] block mb-1">Target Company</label>
+                  <label className="text-xs font-semibold text-[#667085] block mb-1">Sector</label>
                   <input
                     type="text"
                     required
-                    value={targetCompany}
-                    onChange={(e) => setTargetCompany(e.target.value)}
+                    value={targetSector}
+                    onChange={(e) => setTargetSector(e.target.value)}
                     className="w-full px-3 py-2 rounded bg-white border border-gray-300 text-xs text-[#1E2430] focus:outline-none focus:border-[#2F6FED]"
                   />
                 </div>
@@ -169,7 +333,7 @@ export default function AdminPage() {
 
               {/* Upload Drop Zone */}
               <div>
-                <label className="text-xs font-semibold text-[#667085] block mb-1">Excel File (.xlsx, .xls)</label>
+                <label className="text-xs font-semibold text-[#667085] block mb-1">Excel Workbook (.xlsx)</label>
                 <div className="border-2 border-dashed border-gray-300 hover:border-[#0F8B8D] bg-white rounded-lg p-6 text-center transition-colors">
                   <input
                     type="file"
@@ -181,9 +345,9 @@ export default function AdminPage() {
                   <label htmlFor="excel-file-input" className="cursor-pointer flex flex-col items-center gap-2">
                     <span className="text-3xl">📁</span>
                     <span className="text-xs text-[#1E2430] font-medium">
-                      {selectedFile ? selectedFile.name : 'Click to select or drag and drop an Excel file'}
+                      {selectedFile ? selectedFile.name : 'Click to select or drag and drop CABS Excel file'}
                     </span>
-                    <span className="text-[10px] text-[#667085]">Supports multi-tab financial templates</span>
+                    <span className="text-[10px] text-[#667085]">Automatically inserts into Supabase tables</span>
                   </label>
                 </div>
               </div>
@@ -197,13 +361,19 @@ export default function AdminPage() {
                     : 'bg-[#0F8B8D] hover:bg-[#0c7274] text-white shadow-sm'
                 }`}
               >
-                {isUploading ? 'Parsing & Uploading Data...' : 'Upload & Publish Spreads'}
+                {isUploading ? 'Parsing & Uploading to Supabase...' : 'Upload & Publish to Database'}
               </button>
             </form>
 
             {uploadStatus && (
-              <div className="mt-4 p-3 bg-[#0F8B8D]/15 border border-[#0F8B8D]/30 rounded text-xs text-[#0F8B8D] font-medium">
-                {uploadStatus}
+              <div
+                className={`mt-4 p-3 rounded text-xs font-medium border ${
+                  uploadStatus.isError
+                    ? 'bg-red-50 text-red-700 border-red-200'
+                    : 'bg-[#0F8B8D]/15 text-[#0F8B8D] border-[#0F8B8D]/30'
+                }`}
+              >
+                {uploadStatus.message}
               </div>
             )}
           </div>
