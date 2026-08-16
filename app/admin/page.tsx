@@ -57,6 +57,53 @@ export default function AdminPage() {
     }
   };
 
+  // Helper function: Keyword/Fuzzy matching for tab names
+  const detectStatementType = (sheetName: string): string | null => {
+    const name = sheetName.toLowerCase().replace(/[^a-z0-9&]/g, '');
+
+    // P&L / Income Statement
+    if (
+      name.includes('pnl') ||
+      name.includes('p&l') ||
+      name.includes('income') ||
+      name.includes('profit') ||
+      name.includes('loss')
+    ) {
+      return 'pnl';
+    }
+
+    // Balance Sheet / SOFP
+    if (
+      name.includes('bs') ||
+      name.includes('sofp') ||
+      name.includes('balance') ||
+      name.includes('position')
+    ) {
+      return 'bs';
+    }
+
+    // Cash Flow / SOCF
+    if (
+      name.includes('cf') ||
+      name.includes('socf') ||
+      name.includes('cash') ||
+      name.includes('flow')
+    ) {
+      return 'cf';
+    }
+
+    // Statement of Changes in Equity / SOCE
+    if (
+      name.includes('soce') ||
+      name.includes('equity') ||
+      name.includes('change')
+    ) {
+      return 'soce';
+    }
+
+    return null;
+  };
+
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFile) return;
@@ -65,7 +112,7 @@ export default function AdminPage() {
     setUploadStatus(null);
 
     try {
-      // 1. Read Excel file into an ArrayBuffer
+      // 1. Read Excel file
       const buffer = await selectedFile.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: 'array' });
 
@@ -95,39 +142,6 @@ export default function AdminPage() {
         companyId = newCompany.id;
       }
 
-      // 3. Flexible Sheet Tab Mapping (handles spaces, prefixes, and accounting acronyms)
-      const tabMap: Record<string, string> = {
-        // Income Statement / P&L
-        'p&l': 'pnl',
-        'pnl': 'pnl',
-        'pandl': 'pnl',
-        'p and l': 'pnl',
-        'incomestatement': 'pnl',
-        'profitandloss': 'pnl',
-        'profit&loss': 'pnl',
-        'is': 'pnl',
-        
-        // Balance Sheet / SOFP
-        'bs': 'bs',
-        'balancesheet': 'bs',
-        'sofp': 'bs',
-        'statementoffinancialposition': 'bs',
-        'financialposition': 'bs',
-        
-        // Cash Flow / SOCF
-        'cf': 'cf',
-        'cashflow': 'cf',
-        'cashflows': 'cf',
-        'socf': 'cf',
-        'statementofcashflows': 'cf',
-
-        // Statement of Changes in Equity / SOCE
-        'soce': 'soce',
-        'statementofchangesinequity': 'soce',
-        'changesinequity': 'soce',
-        'equity': 'soce',
-      };
-
       const statementEntries: Array<{
         company_id: string;
         statement_type: string;
@@ -139,34 +153,55 @@ export default function AdminPage() {
         indent: boolean;
       }> = [];
 
-      // 4. Iterate through workbook tabs
+      const parsedTabs: string[] = [];
+
+      // 3. Iterate through workbook tabs using keyword matching
       for (const sheetName of workbook.SheetNames) {
-        // Strip leading numbers/dots and all spaces e.g. "1. P & L" -> "p&l"
-        const normalizedName = sheetName
-          .toLowerCase()
-          .replace(/^[0-9.\-\s]+/, '')
-          .replace(/\s+/g, '');
+        const statementType = detectStatementType(sheetName);
+        if (!statementType) continue;
 
-        const statementType = tabMap[normalizedName];
-
-        if (!statementType) continue; // Skip non-matching sheets
+        parsedTabs.push(`${sheetName} ➔ [${statementType.toUpperCase()}]`);
 
         const worksheet = workbook.Sheets[sheetName];
         const jsonRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
-        if (jsonRows.length < 2) continue;
+        if (jsonRows.length < 1) continue;
 
-        // Header row (Line Item, 2021, 2022, 2023, etc.)
-        const headerRow = jsonRows[0].map((cell) => String(cell || '').trim());
-        const yearColumns: Array<{ year: string; colIndex: number }> = [];
+        // Find the header row containing year columns (e.g. 2021, 2022, 2023, 2024, 2025)
+        let headerRowIndex = -1;
+        let yearColumns: Array<{ year: string; colIndex: number }> = [];
 
-        headerRow.forEach((colName, idx) => {
-          if (idx > 0 && colName) {
-            const yearMatch = colName.match(/\d{4}/);
-            const year = yearMatch ? yearMatch[0] : colName;
-            yearColumns.push({ year, colIndex: idx });
+        for (let i = 0; i < Math.min(jsonRows.length, 10); i++) {
+          const row = jsonRows[i];
+          if (!row) continue;
+
+          const yearsInRow: Array<{ year: string; colIndex: number }> = [];
+          row.forEach((cell: any, colIdx: number) => {
+            const cellStr = String(cell || '').trim();
+            const yearMatch = cellStr.match(/\b(20\d{2})\b/);
+            if (yearMatch && colIdx > 0) {
+              yearsInRow.push({ year: yearMatch[1], colIndex: colIdx });
+            }
+          });
+
+          if (yearsInRow.length > 0) {
+            headerRowIndex = i;
+            yearColumns = yearsInRow;
+            break;
           }
-        });
+        }
+
+        // Fallback: If no explicit year header found, assume row 0 has years in cols 1..N
+        if (headerRowIndex === -1 && jsonRows.length > 1) {
+          headerRowIndex = 0;
+          jsonRows[0].forEach((cell: any, idx: number) => {
+            if (idx > 0 && cell) {
+              const str = String(cell).trim();
+              const match = str.match(/\d{4}/);
+              yearColumns.push({ year: match ? match[0] : str, colIndex: idx });
+            }
+          });
+        }
 
         // Clear existing financial statement rows for this company & statement type
         await supabase
@@ -175,17 +210,17 @@ export default function AdminPage() {
           .eq('company_id', companyId)
           .eq('statement_type', statementType);
 
-        // Process line items
-        for (let r = 1; r < jsonRows.length; r++) {
+        // Process data rows
+        for (let r = headerRowIndex + 1; r < jsonRows.length; r++) {
           const row = jsonRows[r];
           if (!row || !row[0]) continue;
 
-          const rawLabel = String(row[0]);
-          if (!rawLabel.trim()) continue;
+          const rawLabel = String(row[0]).trim();
+          if (!rawLabel) continue;
 
-          const isHeader = rawLabel.toUpperCase() === rawLabel && !row.some((val, i) => i > 0 && val !== '');
-          const isTotal = rawLabel.toLowerCase().includes('total') || rawLabel.toLowerCase().includes('profit');
-          const indent = rawLabel.startsWith(' ') || rawLabel.startsWith('\t');
+          const isHeader = rawLabel.toUpperCase() === rawLabel && !row.some((val: any, i: number) => i > 0 && val !== '' && val !== null);
+          const isTotal = rawLabel.toLowerCase().includes('total') || rawLabel.toLowerCase().includes('profit') || rawLabel.toLowerCase().includes('net');
+          const indent = String(row[0]).startsWith(' ') || String(row[0]).startsWith('\t');
 
           yearColumns.forEach(({ year, colIndex }) => {
             const rawVal = row[colIndex];
@@ -194,7 +229,7 @@ export default function AdminPage() {
             statementEntries.push({
               company_id: companyId,
               statement_type: statementType,
-              line_item: rawLabel.trim(),
+              line_item: rawLabel,
               fiscal_year: year,
               amount: isNaN(numericVal) ? 0 : numericVal,
               is_header: isHeader,
@@ -206,10 +241,12 @@ export default function AdminPage() {
       }
 
       if (statementEntries.length === 0) {
-        throw new Error('No matching financial tabs found. Ensure sheet names match P&L, BS, SOFP, CF, SOCF, or SOCE.');
+        throw new Error(
+          `No financial tabs detected in "${selectedFile.name}".\n\nDetected sheets in your file: [${workbook.SheetNames.join(', ')}].\n\nPlease rename your tabs so they contain keywords like "P&L", "Balance Sheet", "Cash Flow", or "Equity".`
+        );
       }
 
-      // 5. Batch insert data into Supabase
+      // 4. Batch insert data into Supabase
       const { error: insertErr } = await supabase
         .from('financial_statements')
         .insert(statementEntries);
@@ -217,7 +254,7 @@ export default function AdminPage() {
       if (insertErr) throw new Error(`Database upload failed: ${insertErr.message}`);
 
       setUploadStatus({
-        message: `Successfully uploaded ${selectedFile.name}! Created/Updated ${targetCompany} (${targetCountry}) in Supabase with ${statementEntries.length} data points.`,
+        message: `Successfully uploaded ${selectedFile.name}! Matched tabs: (${parsedTabs.join(' | ')}). Uploaded ${statementEntries.length} data points to Supabase.`,
       });
       setSelectedFile(null);
     } catch (err: any) {
@@ -392,7 +429,7 @@ export default function AdminPage() {
 
             {uploadStatus && (
               <div
-                className={`mt-4 p-3 rounded text-xs font-medium border ${
+                className={`mt-4 p-3 rounded text-xs font-medium border whitespace-pre-wrap ${
                   uploadStatus.isError
                     ? 'bg-red-50 text-red-700 border-red-200'
                     : 'bg-[#0F8B8D]/15 text-[#0F8B8D] border-[#0F8B8D]/30'
