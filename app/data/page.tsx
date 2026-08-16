@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useState } from 'react';
 
-// --- Types ---
 type StatementTab = 'pnl' | 'bs' | 'cf' | 'soce';
 
 interface FinancialRow {
@@ -14,7 +13,6 @@ interface FinancialRow {
   values: { [year: string]: string };
 }
 
-// --- Sample Financial Data for CBZ Holdings (2021 - 2025) ---
 const YEARS = ['2021', '2022', '2023', '2024', '2025'];
 
 const PNL_DATA: FinancialRow[] = [
@@ -69,7 +67,6 @@ const SOCE_DATA: FinancialRow[] = [
   { label: 'Closing Total Equity', isTotal: true, values: { '2021': '95.0', '2022': '128.0', '2023': '165.0', '2024': '205.0', '2025': '260.0' } },
 ];
 
-// --- Folder Structure ---
 interface CompanyItem {
   id: string;
   name: string;
@@ -101,7 +98,6 @@ export default function DataPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [openCountry, setOpenCountry] = useState<string>('Zimbabwe');
 
-  // Helper to determine which dataset to show
   const getActiveDataset = () => {
     switch (activeTab) {
       case 'pnl':
@@ -117,7 +113,6 @@ export default function DataPage() {
     }
   };
 
-  // Filter companies based on search input
   const filteredDirectory = DIRECTORY.map((folder) => {
     const matchingCompanies = folder.companies.filter((comp) =>
       comp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -128,21 +123,18 @@ export default function DataPage() {
   }).filter((folder) => folder.companies.length > 0);
 
   return (
-    <div className="min-h-screen bg-[#222831] text-white flex flex-col font-sans">
-      {/* Top Header */}
-      <header className="border-b border-gray-800 bg-[#0B2D52] px-6 py-4 flex justify-between items-center">
+    <div className="min-h-screen bg-white text-[#1E2430] flex flex-col font-sans">
+      {/* Dark Header Anchor */}
+      <header className="border-b border-gray-200 bg-[#273142] text-white px-6 py-4 flex justify-between items-center">
         <div className="flex items-center gap-4">
-          <Link href="/" className="text-2xl font-bold text-[#D4A437] tracking-tight hover:opacity-90 transition-opacity">
-            AfriDatar
+          <Link href="/" className="text-2xl font-bold text-white tracking-tight">
+            Afri<span className="text-[#2F6FED]">Datar</span>
           </Link>
-          <span className="text-xs text-gray-400 bg-[#222831] px-2.5 py-1 rounded border border-gray-700">
+          <span className="text-xs text-gray-300 bg-[#1E2430] px-2.5 py-1 rounded border border-gray-700">
             Data Library
           </span>
         </div>
-        <Link
-          href="/"
-          className="text-sm text-gray-300 hover:text-[#D4A437] transition-colors"
-        >
+        <Link href="/" className="text-sm text-gray-300 hover:text-white transition-colors">
           ← Back to Home
         </Link>
       </header>
@@ -150,10 +142,9 @@ export default function DataPage() {
       {/* Main Container */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
         {/* Sidebar Directory */}
-        <aside className="w-full md:w-72 bg-[#0B2D52]/30 border-r border-gray-800 p-4 flex flex-col gap-4">
-          {/* Search Box */}
+        <aside className="w-full md:w-72 bg-[#F8FAFC] border-r border-gray-200 p-4 flex flex-col gap-4">
           <div>
-            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-1">
+            <label className="text-xs font-semibold text-[#667085] uppercase tracking-wider block mb-1">
               Search Data
             </label>
             <input
@@ -161,24 +152,23 @@ export default function DataPage() {
               placeholder="Search company or ticker..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-3 py-2 rounded bg-[#222831] border border-gray-700 text-xs text-white focus:outline-none focus:border-[#D4A437]"
+              className="w-full px-3 py-2 rounded bg-white border border-gray-300 text-xs text-[#1E2430] placeholder-[#667085] focus:outline-none focus:border-[#2F6FED]"
             />
           </div>
 
-          {/* Directory Tree */}
           <div className="flex-1 overflow-y-auto">
-            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-2">
+            <span className="text-xs font-semibold text-[#667085] uppercase tracking-wider block mb-2">
               Country Directory
             </span>
 
             {filteredDirectory.length === 0 ? (
-              <p className="text-xs text-gray-500 py-2">No matching companies found.</p>
+              <p className="text-xs text-[#667085] py-2">No matching companies found.</p>
             ) : (
               filteredDirectory.map((folder) => (
                 <div key={folder.country} className="mb-3">
                   <button
                     onClick={() => setOpenCountry(openCountry === folder.country ? '' : folder.country)}
-                    className="w-full text-left font-bold text-sm text-[#D4A437] flex justify-between items-center py-1 hover:opacity-80"
+                    className="w-full text-left font-bold text-sm text-[#2F6FED] flex justify-between items-center py-1 hover:opacity-80"
                   >
                     <span>📁 {folder.country}</span>
                     <span className="text-xs">{openCountry === folder.country ? '▼' : '▶'}</span>
@@ -192,13 +182,13 @@ export default function DataPage() {
                           onClick={() => setSelectedCompany(comp)}
                           className={`w-full text-left text-xs px-2.5 py-1.5 rounded flex justify-between items-center transition-colors ${
                             selectedCompany.id === comp.id
-                              ? 'bg-[#0F7B5F] text-white font-semibold'
-                              : 'text-gray-300 hover:bg-[#222831]'
+                              ? 'bg-[#0F8B8D] text-white font-semibold'
+                              : 'text-[#273142] hover:bg-gray-200/60'
                           }`}
                         >
                           <span>{comp.name}</span>
                           {!comp.hasData && (
-                            <span className="text-[10px] text-gray-500 italic">Soon</span>
+                            <span className="text-[10px] text-[#667085] italic">Soon</span>
                           )}
                         </button>
                       ))}
@@ -211,86 +201,83 @@ export default function DataPage() {
         </aside>
 
         {/* Financial Viewer Area */}
-        <main className="flex-1 p-6 overflow-x-auto flex flex-col gap-6">
-          {/* Company Metadata Header Card */}
-          <div className="bg-[#0B2D52]/50 border border-gray-800 p-5 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <main className="flex-1 p-6 overflow-x-auto flex flex-col gap-6 bg-white">
+          {/* Header Card */}
+          <div className="bg-[#F8FAFC] border border-gray-200 p-5 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <h1 className="text-2xl font-bold text-white">{selectedCompany.name}</h1>
-                <span className="bg-[#0F7B5F]/20 text-[#0F7B5F] text-xs font-semibold px-2 py-0.5 rounded border border-[#0F7B5F]/40">
+                <h1 className="text-2xl font-bold text-[#1E2430]">{selectedCompany.name}</h1>
+                <span className="bg-[#0F8B8D]/15 text-[#0F8B8D] text-xs font-semibold px-2 py-0.5 rounded border border-[#0F8B8D]/30">
                   {selectedCompany.ticker}
                 </span>
               </div>
-              <p className="text-xs text-gray-400">
-                {selectedCompany.country} • {selectedCompany.sector} • Reporting Currency: <span className="text-gray-200 font-medium">USD / ZWG (Millions)</span>
+              <p className="text-xs text-[#667085]">
+                {selectedCompany.country} • {selectedCompany.sector} • Reporting Currency: <span className="text-[#1E2430] font-medium">USD / ZWG (Millions)</span>
               </p>
             </div>
 
-            <div className="text-xs text-gray-400 bg-[#222831] px-3 py-2 rounded border border-gray-800">
+            <div className="text-xs text-[#667085] bg-white px-3 py-2 rounded border border-gray-200 shadow-sm">
               Standardized View • 5-Year Spread
             </div>
           </div>
 
-          {/* Statement View Navigation Tabs */}
-          <div className="border-b border-gray-800 flex gap-2 overflow-x-auto pb-1">
+          {/* Statement Switcher Tabs */}
+          <div className="border-b border-gray-200 flex gap-2 overflow-x-auto pb-1">
             <button
               onClick={() => setActiveTab('pnl')}
               className={`px-4 py-2 text-xs font-semibold rounded-t-md transition-colors ${
                 activeTab === 'pnl'
-                  ? 'bg-[#0B2D52] text-[#D4A437] border-t border-x border-[#D4A437]'
-                  : 'text-gray-400 hover:text-white bg-[#222831]'
+                  ? 'bg-white text-[#2F6FED] border-t-2 border-[#2F6FED] border-x border-gray-200 shadow-sm'
+                  : 'text-[#667085] hover:text-[#1E2430] bg-[#F1F5F9]'
               }`}
             >
               Income Statement (P&L)
             </button>
-
             <button
               onClick={() => setActiveTab('bs')}
               className={`px-4 py-2 text-xs font-semibold rounded-t-md transition-colors ${
                 activeTab === 'bs'
-                  ? 'bg-[#0B2D52] text-[#D4A437] border-t border-x border-[#D4A437]'
-                  : 'text-gray-400 hover:text-white bg-[#222831]'
+                  ? 'bg-white text-[#2F6FED] border-t-2 border-[#2F6FED] border-x border-gray-200 shadow-sm'
+                  : 'text-[#667085] hover:text-[#1E2430] bg-[#F1F5F9]'
               }`}
             >
               Balance Sheet (BS)
             </button>
-
             <button
               onClick={() => setActiveTab('cf')}
               className={`px-4 py-2 text-xs font-semibold rounded-t-md transition-colors ${
                 activeTab === 'cf'
-                  ? 'bg-[#0B2D52] text-[#D4A437] border-t border-x border-[#D4A437]'
-                  : 'text-gray-400 hover:text-white bg-[#222831]'
+                  ? 'bg-white text-[#2F6FED] border-t-2 border-[#2F6FED] border-x border-gray-200 shadow-sm'
+                  : 'text-[#667085] hover:text-[#1E2430] bg-[#F1F5F9]'
               }`}
             >
               Cash Flow (CF)
             </button>
-
             <button
               onClick={() => setActiveTab('soce')}
               className={`px-4 py-2 text-xs font-semibold rounded-t-md transition-colors ${
                 activeTab === 'soce'
-                  ? 'bg-[#0B2D52] text-[#D4A437] border-t border-x border-[#D4A437]'
-                  : 'text-gray-400 hover:text-white bg-[#222831]'
+                  ? 'bg-white text-[#2F6FED] border-t-2 border-[#2F6FED] border-x border-gray-200 shadow-sm'
+                  : 'text-[#667085] hover:text-[#1E2430] bg-[#F1F5F9]'
               }`}
             >
               Statement of Changes in Equity (SOCE)
             </button>
           </div>
 
-          {/* Side-by-Side Financial Table Grid */}
+          {/* Financial Table Grid */}
           {!selectedCompany.hasData ? (
-            <div className="bg-[#0B2D52]/20 border border-gray-800 p-12 text-center rounded-lg">
-              <p className="text-gray-400 text-sm">
-                Financial data for <span className="text-white font-semibold">{selectedCompany.name}</span> is currently being parsed and will be published shortly.
+            <div className="bg-[#F8FAFC] border border-gray-200 p-12 text-center rounded-lg">
+              <p className="text-[#667085] text-sm">
+                Financial data for <span className="text-[#1E2430] font-semibold">{selectedCompany.name}</span> is currently being parsed and will be published shortly.
               </p>
             </div>
           ) : (
-            <div className="bg-[#0B2D52]/20 border border-gray-800 rounded-lg overflow-x-auto shadow-inner">
+            <div className="bg-white border border-gray-200 rounded-lg overflow-x-auto shadow-sm">
               <table className="w-full text-left border-collapse min-w-[700px]">
                 <thead>
-                  <tr className="border-b border-gray-800 bg-[#0B2D52]/80 text-xs font-bold text-gray-300">
-                    <th className="p-3 sticky left-0 bg-[#0B2D52] min-w-[280px] border-r border-gray-800">
+                  <tr className="border-b border-gray-200 bg-[#F8FAFC] text-xs font-bold text-[#273142]">
+                    <th className="p-3 sticky left-0 bg-[#F8FAFC] min-w-[280px] border-r border-gray-200">
                       Line Item (USD / ZWG Millions)
                     </th>
                     {YEARS.map((year) => (
@@ -300,16 +287,16 @@ export default function DataPage() {
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-800/50 text-xs font-mono">
+                <tbody className="divide-y divide-gray-200 text-xs font-mono">
                   {getActiveDataset().map((row, idx) => {
                     if (row.isHeader) {
                       return (
-                        <tr key={idx} className="bg-[#0B2D52]/40 text-white font-bold">
-                          <td className="p-3 sticky left-0 bg-[#0B2D52]/90 border-r border-gray-800 font-sans">
+                        <tr key={idx} className="bg-[#F1F5F9] text-[#1E2430] font-bold">
+                          <td className="p-3 sticky left-0 bg-[#F1F5F9] border-r border-gray-200 font-sans">
                             {row.label}
                           </td>
                           {YEARS.map((yr) => (
-                            <td key={yr} className="p-3 text-right text-[#D4A437]">
+                            <td key={yr} className="p-3 text-right text-[#2F6FED]">
                               {row.values[yr]}
                             </td>
                           ))}
@@ -319,12 +306,12 @@ export default function DataPage() {
 
                     if (row.isTotal) {
                       return (
-                        <tr key={idx} className="bg-[#0F7B5F]/10 text-white font-bold border-t border-b border-[#0F7B5F]/40">
-                          <td className="p-3 sticky left-0 bg-[#222831] border-r border-gray-800 font-sans">
+                        <tr key={idx} className="bg-[#0F8B8D]/10 text-[#1E2430] font-bold border-t border-b border-[#0F8B8D]/30">
+                          <td className="p-3 sticky left-0 bg-[#F8FAFC] border-r border-gray-200 font-sans">
                             {row.label}
                           </td>
                           {YEARS.map((yr) => (
-                            <td key={yr} className="p-3 text-right text-[#0F7B5F]">
+                            <td key={yr} className="p-3 text-right text-[#0F8B8D]">
                               {row.values[yr]}
                             </td>
                           ))}
@@ -333,8 +320,8 @@ export default function DataPage() {
                     }
 
                     return (
-                      <tr key={idx} className="hover:bg-gray-800/40 text-gray-300">
-                        <td className={`p-2.5 sticky left-0 bg-[#222831] border-r border-gray-800 font-sans ${row.indent ? 'pl-7 text-gray-400' : ''}`}>
+                      <tr key={idx} className="hover:bg-gray-50 text-[#273142]">
+                        <td className={`p-2.5 sticky left-0 bg-white border-r border-gray-200 font-sans ${row.indent ? 'pl-7 text-[#667085]' : ''}`}>
                           {row.label}
                         </td>
                         {YEARS.map((yr) => (
