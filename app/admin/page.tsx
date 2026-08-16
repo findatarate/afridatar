@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useState } from 'react';
 
-// --- Types ---
 type AdminTab = 'upload' | 'subscribers' | 'suggestions';
 
 interface Subscriber {
@@ -21,7 +20,6 @@ interface Suggestion {
   status: 'Pending' | 'In Progress' | 'Completed';
 }
 
-// --- Mock Initial Data ---
 const MOCK_SUBSCRIBERS: Subscriber[] = [
   { id: '1', email: 'investor.rel@capital.co.zw', subscribedAt: '2026-08-10' },
   { id: '2', email: 'analyst@africanmarkets.com', subscribedAt: '2026-08-12' },
@@ -36,19 +34,15 @@ const MOCK_SUGGESTIONS: Suggestion[] = [
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<AdminTab>('upload');
-  
-  // Subscriber & Suggestion State
   const [subscribers] = useState<Subscriber[]>(MOCK_SUBSCRIBERS);
   const [suggestions, setSuggestions] = useState<Suggestion[]>(MOCK_SUGGESTIONS);
 
-  // Upload Form State
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [targetCompany, setTargetCompany] = useState('CBZ Holdings');
   const [targetCountry, setTargetCountry] = useState('Zimbabwe');
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  // Handle File Selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setSelectedFile(e.target.files[0]);
@@ -56,7 +50,6 @@ export default function AdminPage() {
     }
   };
 
-  // Handle Excel Upload Submission
   const handleUploadSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFile) return;
@@ -64,7 +57,6 @@ export default function AdminPage() {
     setIsUploading(true);
     setUploadStatus(null);
 
-    // Simulate Excel parsing & ingestion delay
     setTimeout(() => {
       setIsUploading(false);
       setUploadStatus(`Successfully parsed "${selectedFile.name}" and imported statements for ${targetCompany} (${targetCountry}).`);
@@ -72,7 +64,6 @@ export default function AdminPage() {
     }, 1500);
   };
 
-  // Update Suggestion Status
   const toggleSuggestionStatus = (id: string) => {
     setSuggestions((prev) =>
       prev.map((s) => {
@@ -87,19 +78,19 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#222831] text-white flex flex-col font-sans">
-      {/* Admin Header */}
-      <header className="border-b border-gray-800 bg-[#0B2D52] px-6 py-4 flex justify-between items-center">
+    <div className="min-h-screen bg-white text-[#1E2430] flex flex-col font-sans">
+      {/* Header */}
+      <header className="border-b border-gray-200 bg-[#273142] text-white px-6 py-4 flex justify-between items-center">
         <div className="flex items-center gap-3">
-          <Link href="/" className="text-2xl font-bold text-[#D4A437] tracking-tight hover:opacity-90 transition-opacity">
-            AfriDatar
+          <Link href="/" className="text-2xl font-bold text-white tracking-tight">
+            Afri<span className="text-[#2F6FED]">Datar</span>
           </Link>
-          <span className="text-xs bg-[#D4A437] text-[#222831] font-extrabold px-2 py-0.5 rounded uppercase tracking-wider">
+          <span className="text-xs bg-[#2F6FED] text-white font-extrabold px-2 py-0.5 rounded uppercase tracking-wider">
             Admin Portal
           </span>
         </div>
         <div className="flex items-center gap-4 text-xs">
-          <Link href="/data" className="text-gray-300 hover:text-[#D4A437] transition-colors">
+          <Link href="/data" className="text-gray-300 hover:text-white transition-colors">
             View Data Library
           </Link>
           <Link href="/" className="text-gray-400 hover:text-white transition-colors">
@@ -111,13 +102,13 @@ export default function AdminPage() {
       {/* Main Container */}
       <main className="max-w-6xl mx-auto px-6 py-8 w-full flex-1 flex flex-col gap-6">
         {/* Navigation Tabs */}
-        <div className="border-b border-gray-800 flex gap-4">
+        <div className="border-b border-gray-200 flex gap-4">
           <button
             onClick={() => setActiveTab('upload')}
             className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${
               activeTab === 'upload'
-                ? 'border-[#D4A437] text-[#D4A437]'
-                : 'border-transparent text-gray-400 hover:text-white'
+                ? 'border-[#2F6FED] text-[#2F6FED]'
+                : 'border-transparent text-[#667085] hover:text-[#1E2430]'
             }`}
           >
             📊 Upload Financial Spreads (Excel)
@@ -126,8 +117,8 @@ export default function AdminPage() {
             onClick={() => setActiveTab('subscribers')}
             className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${
               activeTab === 'subscribers'
-                ? 'border-[#D4A437] text-[#D4A437]'
-                : 'border-transparent text-gray-400 hover:text-white'
+                ? 'border-[#2F6FED] text-[#2F6FED]'
+                : 'border-transparent text-[#667085] hover:text-[#1E2430]'
             }`}
           >
             📬 Subscribers ({subscribers.length})
@@ -136,50 +127,50 @@ export default function AdminPage() {
             onClick={() => setActiveTab('suggestions')}
             className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${
               activeTab === 'suggestions'
-                ? 'border-[#D4A437] text-[#D4A437]'
-                : 'border-transparent text-gray-400 hover:text-white'
+                ? 'border-[#2F6FED] text-[#2F6FED]'
+                : 'border-transparent text-[#667085] hover:text-[#1E2430]'
             }`}
           >
             💡 Company Requests ({suggestions.length})
           </button>
         </div>
 
-        {/* TAB 1: EXCEL UPLOAD PANEL */}
+        {/* TAB 1: EXCEL UPLOAD */}
         {activeTab === 'upload' && (
-          <div className="bg-[#0B2D52]/30 border border-gray-800 p-6 rounded-xl max-w-2xl">
-            <h2 className="text-xl font-bold text-white mb-1">Import Excel Financial Spreads</h2>
-            <p className="text-xs text-gray-400 mb-6">
-              Upload an Excel workbook containing standardized tabs (<code className="text-[#D4A437]">P&L</code>, <code className="text-[#D4A437]">BS</code>, <code className="text-[#D4A437]">CF</code>, <code className="text-[#D4A437]">SOCE</code>) to update the live dataset.
+          <div className="bg-[#F8FAFC] border border-gray-200 p-6 rounded-xl max-w-2xl shadow-sm">
+            <h2 className="text-xl font-bold text-[#1E2430] mb-1">Import Excel Financial Spreads</h2>
+            <p className="text-xs text-[#667085] mb-6">
+              Upload an Excel workbook containing standardized tabs (<code className="text-[#0F8B8D]">P&L</code>, <code className="text-[#0F8B8D]">BS</code>, <code className="text-[#0F8B8D]">CF</code>, <code className="text-[#0F8B8D]">SOCE</code>) to update the live dataset.
             </p>
 
             <form onSubmit={handleUploadSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-semibold text-gray-300 block mb-1">Target Country</label>
+                  <label className="text-xs font-semibold text-[#667085] block mb-1">Target Country</label>
                   <input
                     type="text"
                     required
                     value={targetCountry}
                     onChange={(e) => setTargetCountry(e.target.value)}
-                    className="w-full px-3 py-2 rounded bg-[#222831] border border-gray-700 text-xs text-white focus:outline-none focus:border-[#D4A437]"
+                    className="w-full px-3 py-2 rounded bg-white border border-gray-300 text-xs text-[#1E2430] focus:outline-none focus:border-[#2F6FED]"
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-gray-300 block mb-1">Target Company</label>
+                  <label className="text-xs font-semibold text-[#667085] block mb-1">Target Company</label>
                   <input
                     type="text"
                     required
                     value={targetCompany}
                     onChange={(e) => setTargetCompany(e.target.value)}
-                    className="w-full px-3 py-2 rounded bg-[#222831] border border-gray-700 text-xs text-white focus:outline-none focus:border-[#D4A437]"
+                    className="w-full px-3 py-2 rounded bg-white border border-gray-300 text-xs text-[#1E2430] focus:outline-none focus:border-[#2F6FED]"
                   />
                 </div>
               </div>
 
-              {/* Drag and Drop Box */}
+              {/* Upload Drop Zone */}
               <div>
-                <label className="text-xs font-semibold text-gray-300 block mb-1">Excel File (.xlsx, .xls)</label>
-                <div className="border-2 border-dashed border-gray-700 hover:border-[#0F7B5F] bg-[#222831] rounded-lg p-6 text-center transition-colors">
+                <label className="text-xs font-semibold text-[#667085] block mb-1">Excel File (.xlsx, .xls)</label>
+                <div className="border-2 border-dashed border-gray-300 hover:border-[#0F8B8D] bg-white rounded-lg p-6 text-center transition-colors">
                   <input
                     type="file"
                     accept=".xlsx, .xls"
@@ -189,10 +180,10 @@ export default function AdminPage() {
                   />
                   <label htmlFor="excel-file-input" className="cursor-pointer flex flex-col items-center gap-2">
                     <span className="text-3xl">📁</span>
-                    <span className="text-xs text-gray-300 font-medium">
+                    <span className="text-xs text-[#1E2430] font-medium">
                       {selectedFile ? selectedFile.name : 'Click to select or drag and drop an Excel file'}
                     </span>
-                    <span className="text-[10px] text-gray-500">Supports multi-tab financial templates</span>
+                    <span className="text-[10px] text-[#667085]">Supports multi-tab financial templates</span>
                   </label>
                 </div>
               </div>
@@ -202,8 +193,8 @@ export default function AdminPage() {
                 disabled={!selectedFile || isUploading}
                 className={`w-full py-2.5 rounded-md font-semibold text-xs transition-colors ${
                   !selectedFile || isUploading
-                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                    : 'bg-[#0F7B5F] hover:bg-[#0c634c] text-white'
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    : 'bg-[#0F8B8D] hover:bg-[#0c7274] text-white shadow-sm'
                 }`}
               >
                 {isUploading ? 'Parsing & Uploading Data...' : 'Upload & Publish Spreads'}
@@ -211,32 +202,32 @@ export default function AdminPage() {
             </form>
 
             {uploadStatus && (
-              <div className="mt-4 p-3 bg-[#0F7B5F]/20 border border-[#0F7B5F]/40 rounded text-xs text-[#0F7B5F] font-medium">
+              <div className="mt-4 p-3 bg-[#0F8B8D]/15 border border-[#0F8B8D]/30 rounded text-xs text-[#0F8B8D] font-medium">
                 {uploadStatus}
               </div>
             )}
           </div>
         )}
 
-        {/* TAB 2: SUBSCRIBERS TABLE */}
+        {/* TAB 2: SUBSCRIBERS */}
         {activeTab === 'subscribers' && (
-          <div className="bg-[#0B2D52]/20 border border-gray-800 rounded-lg overflow-hidden">
-            <div className="p-4 border-b border-gray-800 flex justify-between items-center">
-              <h2 className="text-sm font-bold text-white">Email Notification Subscribers</h2>
-              <span className="text-xs text-gray-400">Total: {subscribers.length}</span>
+          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+            <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-[#F8FAFC]">
+              <h2 className="text-sm font-bold text-[#1E2430]">Email Notification Subscribers</h2>
+              <span className="text-xs text-[#667085]">Total: {subscribers.length}</span>
             </div>
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-[#0B2D52] text-xs font-semibold text-gray-300 border-b border-gray-800">
+                <tr className="bg-[#F1F5F9] text-xs font-semibold text-[#273142] border-b border-gray-200">
                   <th className="p-3">Email Address</th>
                   <th className="p-3">Subscription Date</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-800 text-xs">
+              <tbody className="divide-y divide-gray-200 text-xs">
                 {subscribers.map((sub) => (
-                  <tr key={sub.id} className="hover:bg-gray-800/30 text-gray-300">
-                    <td className="p-3 font-mono text-white">{sub.email}</td>
-                    <td className="p-3 text-gray-400">{sub.subscribedAt}</td>
+                  <tr key={sub.id} className="hover:bg-gray-50 text-[#273142]">
+                    <td className="p-3 font-mono text-[#1E2430]">{sub.email}</td>
+                    <td className="p-3 text-[#667085]">{sub.subscribedAt}</td>
                   </tr>
                 ))}
               </tbody>
@@ -244,16 +235,16 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* TAB 3: COMPANY REQUESTS TABLE */}
+        {/* TAB 3: SUGGESTIONS */}
         {activeTab === 'suggestions' && (
-          <div className="bg-[#0B2D52]/20 border border-gray-800 rounded-lg overflow-hidden">
-            <div className="p-4 border-b border-gray-800 flex justify-between items-center">
-              <h2 className="text-sm font-bold text-white">User-Suggested Companies</h2>
-              <span className="text-xs text-gray-400">Click status to toggle</span>
+          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+            <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-[#F8FAFC]">
+              <h2 className="text-sm font-bold text-[#1E2430]">User-Suggested Companies</h2>
+              <span className="text-xs text-[#667085]">Click status badge to toggle</span>
             </div>
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-[#0B2D52] text-xs font-semibold text-gray-300 border-b border-gray-800">
+                <tr className="bg-[#F1F5F9] text-xs font-semibold text-[#273142] border-b border-gray-200">
                   <th className="p-3">Company Name</th>
                   <th className="p-3">Country</th>
                   <th className="p-3">Requester Email</th>
@@ -261,22 +252,22 @@ export default function AdminPage() {
                   <th className="p-3">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-800 text-xs">
+              <tbody className="divide-y divide-gray-200 text-xs">
                 {suggestions.map((s) => (
-                  <tr key={s.id} className="hover:bg-gray-800/30 text-gray-300">
-                    <td className="p-3 font-bold text-white">{s.companyName}</td>
-                    <td className="p-3 text-[#D4A437]">{s.country}</td>
-                    <td className="p-3 font-mono">{s.email}</td>
-                    <td className="p-3 text-gray-400">{s.requestedAt}</td>
+                  <tr key={s.id} className="hover:bg-gray-50 text-[#273142]">
+                    <td className="p-3 font-bold text-[#1E2430]">{s.companyName}</td>
+                    <td className="p-3 text-[#2F6FED]">{s.country}</td>
+                    <td className="p-3 font-mono text-[#667085]">{s.email}</td>
+                    <td className="p-3 text-[#667085]">{s.requestedAt}</td>
                     <td className="p-3">
                       <button
                         onClick={() => toggleSuggestionStatus(s.id)}
                         className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
                           s.status === 'Completed'
-                            ? 'bg-[#0F7B5F]/20 text-[#0F7B5F] border border-[#0F7B5F]/40'
+                            ? 'bg-[#0F8B8D]/15 text-[#0F8B8D] border border-[#0F8B8D]/30'
                             : s.status === 'In Progress'
-                            ? 'bg-[#D4A437]/20 text-[#D4A437] border border-[#D4A437]/40'
-                            : 'bg-gray-800 text-gray-400 border border-gray-700'
+                            ? 'bg-[#2F6FED]/15 text-[#2F6FED] border border-[#2F6FED]/30'
+                            : 'bg-gray-100 text-[#667085] border border-gray-300'
                         }`}
                       >
                         {s.status}
