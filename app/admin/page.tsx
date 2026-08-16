@@ -95,17 +95,37 @@ export default function AdminPage() {
         companyId = newCompany.id;
       }
 
-      // 3. Normalized Sheet Tab Mapping
+      // 3. Flexible Sheet Tab Mapping (handles spaces, prefixes, and accounting acronyms)
       const tabMap: Record<string, string> = {
-        pnl: 'pnl',
-        'income statement': 'pnl',
+        // Income Statement / P&L
         'p&l': 'pnl',
-        bs: 'bs',
-        'balance sheet': 'bs',
-        cf: 'cf',
-        'cash flow': 'cf',
-        soce: 'soce',
-        'statement of changes in equity': 'soce',
+        'pnl': 'pnl',
+        'pandl': 'pnl',
+        'p and l': 'pnl',
+        'incomestatement': 'pnl',
+        'profitandloss': 'pnl',
+        'profit&loss': 'pnl',
+        'is': 'pnl',
+        
+        // Balance Sheet / SOFP
+        'bs': 'bs',
+        'balancesheet': 'bs',
+        'sofp': 'bs',
+        'statementoffinancialposition': 'bs',
+        'financialposition': 'bs',
+        
+        // Cash Flow / SOCF
+        'cf': 'cf',
+        'cashflow': 'cf',
+        'cashflows': 'cf',
+        'socf': 'cf',
+        'statementofcashflows': 'cf',
+
+        // Statement of Changes in Equity / SOCE
+        'soce': 'soce',
+        'statementofchangesinequity': 'soce',
+        'changesinequity': 'soce',
+        'equity': 'soce',
       };
 
       const statementEntries: Array<{
@@ -121,7 +141,12 @@ export default function AdminPage() {
 
       // 4. Iterate through workbook tabs
       for (const sheetName of workbook.SheetNames) {
-        const normalizedName = sheetName.trim().toLowerCase();
+        // Strip leading numbers/dots and all spaces e.g. "1. P & L" -> "p&l"
+        const normalizedName = sheetName
+          .toLowerCase()
+          .replace(/^[0-9.\-\s]+/, '')
+          .replace(/\s+/g, '');
+
         const statementType = tabMap[normalizedName];
 
         if (!statementType) continue; // Skip non-matching sheets
@@ -143,7 +168,7 @@ export default function AdminPage() {
           }
         });
 
-        // Clear existing financial statement rows for this company & statement type to prevent duplicates
+        // Clear existing financial statement rows for this company & statement type
         await supabase
           .from('financial_statements')
           .delete()
@@ -181,7 +206,7 @@ export default function AdminPage() {
       }
 
       if (statementEntries.length === 0) {
-        throw new Error('No matching tabs found. Ensure sheet names are P&L, BS, CF, or SOCE.');
+        throw new Error('No matching financial tabs found. Ensure sheet names match P&L, BS, SOFP, CF, SOCF, or SOCE.');
       }
 
       // 5. Batch insert data into Supabase
@@ -281,7 +306,7 @@ export default function AdminPage() {
           <div className="bg-[#F8FAFC] border border-gray-200 p-6 rounded-xl max-w-2xl shadow-sm">
             <h2 className="text-xl font-bold text-[#1E2430] mb-1">Import Excel Spreads to Supabase</h2>
             <p className="text-xs text-[#667085] mb-6">
-              Upload an Excel workbook containing standardized tabs (<code className="text-[#0F8B8D]">P&L</code>, <code className="text-[#0F8B8D]">BS</code>, <code className="text-[#0F8B8D]">CF</code>, <code className="text-[#0F8B8D]">SOCE</code>).
+              Upload an Excel workbook containing financial tabs (<code className="text-[#0F8B8D]">P&L / IS</code>, <code className="text-[#0F8B8D]">BS / SOFP</code>, <code className="text-[#0F8B8D]">CF / SOCF</code>, <code className="text-[#0F8B8D]">SOCE</code>).
             </p>
 
             <form onSubmit={handleUploadSubmit} className="space-y-4">
@@ -345,7 +370,7 @@ export default function AdminPage() {
                   <label htmlFor="excel-file-input" className="cursor-pointer flex flex-col items-center gap-2">
                     <span className="text-3xl">📁</span>
                     <span className="text-xs text-[#1E2430] font-medium">
-                      {selectedFile ? selectedFile.name : 'Click to select or drag and drop CABS Excel file'}
+                      {selectedFile ? selectedFile.name : 'Click to select or drag and drop Excel file'}
                     </span>
                     <span className="text-[10px] text-[#667085]">Automatically inserts into Supabase tables</span>
                   </label>
