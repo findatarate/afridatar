@@ -2,25 +2,75 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import { supabase } from '@/lib/supabase';
 
 export default function HomePage() {
+  // Subscriber form state
   const [subEmail, setSubEmail] = useState('');
-  const [subSubmitted, setSubSubmitted] = useState(false);
+  const [subLoading, setSubLoading] = useState(false);
+  const [subMessage, setSubMessage] = useState<{ text: string; error?: boolean } | null>(null);
 
+  // Suggestion form state
   const [suggestCompany, setSuggestCompany] = useState('');
   const [suggestCountry, setSuggestCountry] = useState('');
   const [suggestEmail, setSuggestEmail] = useState('');
-  const [suggestSubmitted, setSuggestSubmitted] = useState(false);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [suggestMessage, setSuggestMessage] = useState<{ text: string; error?: boolean } | null>(null);
 
-  const handleSubscribe = (e: React.FormEvent) => {
+  // Handle newsletter subscription
+  const handleSubscribe = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (subEmail) setSubSubmitted(true);
+    if (!subEmail) return;
+
+    setSubLoading(true);
+    setSubMessage(null);
+
+    try {
+      const { error } = await supabase.from('subscribers').insert([{ email: subEmail.trim() }]);
+
+      if (error) {
+        if (error.code === '23505') {
+          throw new Error('This email address is already subscribed.');
+        }
+        throw error;
+      }
+
+      setSubMessage({ text: 'Thank you for subscribing!' });
+      setSubEmail('');
+    } catch (err: any) {
+      setSubMessage({ text: err.message || 'Failed to subscribe. Please try again.', error: true });
+    } finally {
+      setSubLoading(false);
+    }
   };
 
-  const handleSuggest = (e: React.FormEvent) => {
+  // Handle company suggestion
+  const handleSuggest = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (suggestCompany && suggestCountry && suggestEmail) {
-      setSuggestSubmitted(true);
+    if (!suggestCompany || !suggestCountry || !suggestEmail) return;
+
+    setSuggestLoading(true);
+    setSuggestMessage(null);
+
+    try {
+      const { error } = await supabase.from('company_requests').insert([
+        {
+          company_name: suggestCompany.trim(),
+          country: suggestCountry.trim(),
+          email: suggestEmail.trim(),
+        },
+      ]);
+
+      if (error) throw error;
+
+      setSuggestMessage({ text: 'Company request received. Thank you!' });
+      setSuggestCompany('');
+      setSuggestCountry('');
+      setSuggestEmail('');
+    } catch (err: any) {
+      setSuggestMessage({ text: err.message || 'Failed to submit suggestion.', error: true });
+    } finally {
+      setSuggestLoading(false);
     }
   };
 
@@ -72,25 +122,27 @@ export default function HomePage() {
             <p className="text-xs text-[#667085] mb-4">
               Get notified whenever a new company or quarterly report is uploaded.
             </p>
-            {subSubmitted ? (
-              <p className="text-sm text-[#0F8B8D] font-semibold py-2">Thank you for subscribing!</p>
-            ) : (
-              <form onSubmit={handleSubscribe} className="space-y-3">
-                <input
-                  type="email"
-                  required
-                  placeholder="Enter your email address"
-                  value={subEmail}
-                  onChange={(e) => setSubEmail(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-md bg-white border border-gray-300 text-sm text-[#1E2430] placeholder-[#667085] focus:outline-none focus:border-[#2F6FED]"
-                />
-                <button
-                  type="submit"
-                  className="w-full bg-[#2F6FED] hover:bg-[#255bc4] text-white text-sm font-semibold py-2.5 rounded-md transition-colors shadow-sm"
-                >
-                  Subscribe
-                </button>
-              </form>
+            <form onSubmit={handleSubscribe} className="space-y-3">
+              <input
+                type="email"
+                required
+                placeholder="Enter your email address"
+                value={subEmail}
+                onChange={(e) => setSubEmail(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-md bg-white border border-gray-300 text-sm text-[#1E2430] placeholder-[#667085] focus:outline-none focus:border-[#2F6FED]"
+              />
+              <button
+                type="submit"
+                disabled={subLoading}
+                className="w-full bg-[#2F6FED] hover:bg-[#255bc4] text-white text-sm font-semibold py-2.5 rounded-md transition-colors shadow-sm disabled:opacity-50"
+              >
+                {subLoading ? 'Subscribing...' : 'Subscribe'}
+              </button>
+            </form>
+            {subMessage && (
+              <p className={`text-xs font-semibold mt-3 ${subMessage.error ? 'text-red-600' : 'text-[#0F8B8D]'}`}>
+                {subMessage.text}
+              </p>
             )}
           </div>
 
@@ -100,41 +152,43 @@ export default function HomePage() {
             <p className="text-xs text-[#667085] mb-4">
               Tell us which company you want us to cover next.
             </p>
-            {suggestSubmitted ? (
-              <p className="text-sm text-[#0F8B8D] font-semibold py-2">Suggestion received. Thank you!</p>
-            ) : (
-              <form onSubmit={handleSuggest} className="space-y-3">
-                <input
-                  type="text"
-                  required
-                  placeholder="Company Name"
-                  value={suggestCompany}
-                  onChange={(e) => setSuggestCompany(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-md bg-white border border-gray-300 text-sm text-[#1E2430] placeholder-[#667085] focus:outline-none focus:border-[#2F6FED]"
-                />
-                <input
-                  type="text"
-                  required
-                  placeholder="Country"
-                  value={suggestCountry}
-                  onChange={(e) => setSuggestCountry(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-md bg-white border border-gray-300 text-sm text-[#1E2430] placeholder-[#667085] focus:outline-none focus:border-[#2F6FED]"
-                />
-                <input
-                  type="email"
-                  required
-                  placeholder="Contact Email"
-                  value={suggestEmail}
-                  onChange={(e) => setSuggestEmail(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-md bg-white border border-gray-300 text-sm text-[#1E2430] placeholder-[#667085] focus:outline-none focus:border-[#2F6FED]"
-                />
-                <button
-                  type="submit"
-                  className="w-full bg-[#273142] hover:bg-[#1E2430] text-white text-sm font-semibold py-2.5 rounded-md transition-colors"
-                >
-                  Submit Suggestion
-                </button>
-              </form>
+            <form onSubmit={handleSuggest} className="space-y-3">
+              <input
+                type="text"
+                required
+                placeholder="Company Name"
+                value={suggestCompany}
+                onChange={(e) => setSuggestCompany(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-md bg-white border border-gray-300 text-sm text-[#1E2430] placeholder-[#667085] focus:outline-none focus:border-[#2F6FED]"
+              />
+              <input
+                type="text"
+                required
+                placeholder="Country"
+                value={suggestCountry}
+                onChange={(e) => setSuggestCountry(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-md bg-white border border-gray-300 text-sm text-[#1E2430] placeholder-[#667085] focus:outline-none focus:border-[#2F6FED]"
+              />
+              <input
+                type="email"
+                required
+                placeholder="Contact Email"
+                value={suggestEmail}
+                onChange={(e) => setSuggestEmail(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-md bg-white border border-gray-300 text-sm text-[#1E2430] placeholder-[#667085] focus:outline-none focus:border-[#2F6FED]"
+              />
+              <button
+                type="submit"
+                disabled={suggestLoading}
+                className="w-full bg-[#273142] hover:bg-[#1E2430] text-white text-sm font-semibold py-2.5 rounded-md transition-colors disabled:opacity-50"
+              >
+                {suggestLoading ? 'Submitting...' : 'Submit Suggestion'}
+              </button>
+            </form>
+            {suggestMessage && (
+              <p className={`text-xs font-semibold mt-3 ${suggestMessage.error ? 'text-red-600' : 'text-[#0F8B8D]'}`}>
+                {suggestMessage.text}
+              </p>
             )}
           </div>
         </div>
