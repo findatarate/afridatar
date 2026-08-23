@@ -1,11 +1,21 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
 
-type AdminTab = 'upload' | 'subscribers' | 'suggestions';
+type AdminTab = 'upload' | 'manage' | 'subscribers' | 'suggestions';
+
+interface LiveCompany {
+  id: string;
+  name: string;
+  ticker: string;
+  country: string;
+  sector: string;
+  created_at: string;
+  financial_statements?: { count: number }[];
+}
 
 interface Subscriber {
   id: string;
@@ -39,6 +49,11 @@ export default function AdminPage() {
   const [subscribers] = useState<Subscriber[]>(MOCK_SUBSCRIBERS);
   const [suggestions, setSuggestions] = useState<Suggestion[]>(MOCK_SUGGESTIONS);
 
+  // Live Datasets State
+  const [liveCompanies, setLiveCompanies] = useState<LiveCompany[]>([]);
+  const [isLoadingManage, setIsLoadingManage] = useState(false);
+  const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
+
   // Form input states
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [targetCompany, setTargetCompany] = useState('BancABC');
@@ -49,6 +64,32 @@ export default function AdminPage() {
   // Status & loading states
   const [uploadStatus, setUploadStatus] = useState<{ message: string; isError?: boolean } | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+
+  // Fetch Live Datasets from Supabase
+  const fetchLiveDatasets = async () => {
+    setIsLoadingManage(true);
+    const { data, error } = await supabase
+      .from('companies')
+      .select(`
+        id,
+        name,
+        ticker,
+        country,
+        sector,
+        created_at,
+        financial_statements(count)
+      `)
+      .order('created_at', { ascending: false });
+
+    if (!error && data) {
+      setLiveCompanies(data as unknown as LiveCompany[]);
+    }
+    setIsLoadingManage(false);
+  };
+
+  useEffect(() => {
+    fetchLiveDatasets();
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -78,7 +119,7 @@ export default function AdminPage() {
     return null;
   };
 
-  // 3. Helper: Convert Financial Number Formats e.g. "(12,450.00)" -> -12450
+  // 3. Helper: Convert Financial Number Formats
   const parseFinancialNumber = (val: any): number => {
     if (val === null || val === undefined || val === '') return 0;
     if (typeof val === 'number') return isNaN(val) ? 0 : val;
@@ -98,6 +139,7 @@ export default function AdminPage() {
     return isParenthesesNegative ? -Math.abs(num) : num;
   };
 
+  // Handle Excel Upload
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFile) return;
@@ -148,7 +190,6 @@ export default function AdminPage() {
 
       const parsedTabs: string[] = [];
 
-      // Iterate through sheets
       for (const sheetName of workbook.SheetNames) {
         const statementType = detectStatementType(sheetName);
         if (!statementType) continue;
@@ -158,7 +199,6 @@ export default function AdminPage() {
 
         if (jsonRows.length < 1) continue;
 
-        // Find header row with highest concentration of year columns
         let headerRowIndex = -1;
         let yearColumns: Array<{ year: string; colIndex: number }> = [];
 
@@ -185,12 +225,10 @@ export default function AdminPage() {
         parsedTabs.push(`${sheetName} ➔ [${statementType.toUpperCase()}]`);
         const firstYearColIndex = Math.min(...yearColumns.map((y) => y.colIndex));
 
-        // Process data rows below the header
         for (let r = headerRowIndex + 1; r < jsonRows.length; r++) {
           const row = jsonRows[r];
           if (!row || !Array.isArray(row)) continue;
 
-          // Dynamically detect line item label from non-numeric columns
           let rawLabel = '';
           for (let c = 0; c < firstYearColIndex; c++) {
             const cellText = String(row[c] || '').trim();
@@ -235,11 +273,10 @@ export default function AdminPage() {
 
       if (statementEntries.length === 0) {
         throw new Error(
-          `Could not extract line items from "${selectedFile.name}".\n\nDetected sheets: [${workbook.SheetNames.join(', ')}].\n\nEnsure year headers (e.g. 2021, 2022, 2023) are present above your numbers.`
+          `Could not extract line items from "${selectedFile.name}". Ensure year headers (e.g. 2021, 2022) are present.`
         );
       }
 
-      // Clear previous statements for this company and insert new batch
       await supabase.from('financial_statements').delete().eq('company_id', companyId);
 
       const { error: insertErr } = await supabase.from('financial_statements').insert(statementEntries);
@@ -247,9 +284,10 @@ export default function AdminPage() {
       if (insertErr) throw new Error(`Database upload failed: ${insertErr.message}`);
 
       setUploadStatus({
-        message: `Successfully uploaded ${selectedFile.name} for ${targetCompany}! Processed tabs: (${parsedTabs.join(' | ')}). Uploaded ${statementEntries.length} lines to Supabase.`,
+        message: `Successfully uploaded ${selectedFile.name} for ${targetCompany}! Uploaded ${statementEntries.length} lines to Supabase.`,
       });
       setSelectedFile(null);
+      fetchLiveDatasets(); // Refresh datasets table
     } catch (err: any) {
       setUploadStatus({
         message: err.message || 'An error occurred during upload.',
@@ -257,6 +295,31 @@ export default function AdminPage() {
       });
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  // Delete Dataset Function
+  const handleDeleteCompany = async (companyId: string, companyName: string) => {
+    if (!window.confirm(`Are you sure you want to delete ${companyName} and all its financial statements from Supabase?`)) {
+      return;
+    }
+
+    setIsDeletingId(companyId);
+
+    try {
+      // 1. Delete financial statements
+      await supabase.from('financial_statements').delete().eq('company_id', companyId);
+
+      // 2. Delete company entry
+      const { error } = await supabase.from('companies').delete().eq('id', companyId);
+
+      if (error) throw error;
+
+      setLiveCompanies((prev) => prev.filter((c) => c.id !== companyId));
+    } catch (err: any) {
+      alert(`Error deleting company: ${err.message}`);
+    } finally {
+      setIsDeletingId(null);
     }
   };
 
@@ -298,20 +361,30 @@ export default function AdminPage() {
       {/* Main Container */}
       <main className="max-w-6xl mx-auto px-6 py-8 w-full flex-1 flex flex-col gap-6">
         {/* Navigation Tabs */}
-        <div className="border-b border-gray-200 flex gap-4">
+        <div className="border-b border-gray-200 flex gap-4 overflow-x-auto">
           <button
             onClick={() => setActiveTab('upload')}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${
+            className={`pb-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
               activeTab === 'upload'
                 ? 'border-[#2F6FED] text-[#2F6FED]'
                 : 'border-transparent text-[#667085] hover:text-[#1E2430]'
             }`}
           >
-            📊 Upload Financial Spreads (Excel to Supabase)
+            📊 Upload Excel Spreads
+          </button>
+          <button
+            onClick={() => setActiveTab('manage')}
+            className={`pb-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === 'manage'
+                ? 'border-[#2F6FED] text-[#2F6FED]'
+                : 'border-transparent text-[#667085] hover:text-[#1E2430]'
+            }`}
+          >
+            🗂️ Manage Live Datasets ({liveCompanies.length})
           </button>
           <button
             onClick={() => setActiveTab('subscribers')}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${
+            className={`pb-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
               activeTab === 'subscribers'
                 ? 'border-[#2F6FED] text-[#2F6FED]'
                 : 'border-transparent text-[#667085] hover:text-[#1E2430]'
@@ -321,7 +394,7 @@ export default function AdminPage() {
           </button>
           <button
             onClick={() => setActiveTab('suggestions')}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${
+            className={`pb-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
               activeTab === 'suggestions'
                 ? 'border-[#2F6FED] text-[#2F6FED]'
                 : 'border-transparent text-[#667085] hover:text-[#1E2430]'
@@ -434,7 +507,91 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* TAB 2: SUBSCRIBERS */}
+        {/* TAB 2: MANAGE LIVE DATASETS */}
+        {activeTab === 'manage' && (
+          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+            <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-[#F8FAFC]">
+              <div>
+                <h2 className="text-sm font-bold text-[#1E2430]">Live Companies & Financial Datasets</h2>
+                <p className="text-[11px] text-[#667085]">Companies currently published on the public /data page</p>
+              </div>
+              <button
+                onClick={fetchLiveDatasets}
+                className="text-xs text-[#2F6FED] hover:underline font-semibold"
+              >
+                ↻ Refresh List
+              </button>
+            </div>
+
+            {isLoadingManage ? (
+              <div className="p-8 text-center text-xs text-[#667085]">Loading live datasets...</div>
+            ) : liveCompanies.length === 0 ? (
+              <div className="p-8 text-center text-xs text-[#667085]">
+                No live datasets found in Supabase. Upload an Excel file in the Upload tab to publish data.
+              </div>
+            ) : (
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-[#F1F5F9] text-xs font-semibold text-[#273142] border-b border-gray-200">
+                    <th className="p-3">Company</th>
+                    <th className="p-3">Country / Sector</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3">Line Items</th>
+                    <th className="p-3">Last Updated</th>
+                    <th className="p-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 text-xs">
+                  {liveCompanies.map((comp) => {
+                    const lineItemCount = comp.financial_statements?.[0]?.count || 0;
+                    const formattedDate = new Date(comp.created_at).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    });
+
+                    return (
+                      <tr key={comp.id} className="hover:bg-gray-50 text-[#273142]">
+                        <td className="p-3">
+                          <span className="font-bold text-[#1E2430] block">{comp.name}</span>
+                          <span className="text-[10px] text-gray-500 font-mono">{comp.ticker}</span>
+                        </td>
+                        <td className="p-3 text-[#667085]">
+                          <div>{comp.country}</div>
+                          <div className="text-[10px] text-gray-400">{comp.sector}</div>
+                        </td>
+                        <td className="p-3">
+                          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-[#0F8B8D]/15 text-[#0F8B8D] border border-[#0F8B8D]/30">
+                            ● LIVE
+                          </span>
+                        </td>
+                        <td className="p-3 font-mono text-[#1E2430]">
+                          {lineItemCount} rows
+                        </td>
+                        <td className="p-3 text-[#667085]">
+                          {formattedDate}
+                        </td>
+                        <td className="p-3 text-right">
+                          <button
+                            onClick={() => handleDeleteCompany(comp.id, comp.name)}
+                            disabled={isDeletingId === comp.id}
+                            className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-50"
+                          >
+                            {isDeletingId === comp.id ? 'Deleting...' : 'Delete Dataset'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* TAB 3: SUBSCRIBERS */}
         {activeTab === 'subscribers' && (
           <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
             <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-[#F8FAFC]">
@@ -460,7 +617,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* TAB 3: SUGGESTIONS */}
+        {/* TAB 4: SUGGESTIONS */}
         {activeTab === 'suggestions' && (
           <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
             <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-[#F8FAFC]">
