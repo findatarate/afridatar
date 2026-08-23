@@ -20,43 +20,37 @@ interface LiveCompany {
 interface Subscriber {
   id: string;
   email: string;
-  subscribedAt: string;
+  created_at: string;
 }
 
-interface Suggestion {
+interface CompanyRequest {
   id: string;
-  companyName: string;
+  company_name: string;
   country: string;
   email: string;
-  requestedAt: string;
   status: 'Pending' | 'In Progress' | 'Completed';
+  created_at: string;
 }
-
-const MOCK_SUBSCRIBERS: Subscriber[] = [
-  { id: '1', email: 'investor.rel@capital.co.zw', subscribedAt: '2026-08-10' },
-  { id: '2', email: 'analyst@africanmarkets.com', subscribedAt: '2026-08-12' },
-  { id: '3', email: 'finance@hararecap.com', subscribedAt: '2026-08-15' },
-];
-
-const MOCK_SUGGESTIONS: Suggestion[] = [
-  { id: '1', companyName: 'Delta Corporation', country: 'Zimbabwe', email: 'research@fund.co.zw', requestedAt: '2026-08-11', status: 'In Progress' },
-  { id: '2', companyName: 'Econet Wireless', country: 'Zimbabwe', email: 'trader@zimstocks.com', requestedAt: '2026-08-14', status: 'Pending' },
-  { id: '3', companyName: 'Safaricom', country: 'Kenya', email: 'ke.analyst@frontier.io', requestedAt: '2026-08-16', status: 'Pending' },
-];
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<AdminTab>('upload');
-  const [subscribers] = useState<Subscriber[]>(MOCK_SUBSCRIBERS);
-  const [suggestions, setSuggestions] = useState<Suggestion[]>(MOCK_SUGGESTIONS);
 
-  // Live Datasets State
+  // Dynamic States
   const [liveCompanies, setLiveCompanies] = useState<LiveCompany[]>([]);
+  const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
+  const [companyRequests, setCompanyRequests] = useState<CompanyRequest[]>([]);
+
+  // Loading States
   const [isLoadingManage, setIsLoadingManage] = useState(false);
+  const [isLoadingSubscribers, setIsLoadingSubscribers] = useState(false);
+  const [isLoadingRequests, setIsLoadingRequests] = useState(false);
+
+  // Row Action Loading States
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
   const [isDownloadingId, setIsDownloadingId] = useState<string | null>(null);
   const [isReplacingId, setIsReplacingId] = useState<string | null>(null);
 
-  // Hidden File Input Ref for Replace Action
+  // Replace File Input Ref
   const replaceFileInputRef = useRef<HTMLInputElement | null>(null);
   const [replaceTargetCompany, setReplaceTargetCompany] = useState<LiveCompany | null>(null);
 
@@ -71,7 +65,7 @@ export default function AdminPage() {
   const [uploadStatus, setUploadStatus] = useState<{ message: string; isError?: boolean } | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  // Fetch Live Datasets from Supabase
+  // Fetch Live Datasets
   const fetchLiveDatasets = async () => {
     setIsLoadingManage(true);
     const { data, error } = await supabase
@@ -93,8 +87,38 @@ export default function AdminPage() {
     setIsLoadingManage(false);
   };
 
+  // Fetch Subscribers
+  const fetchSubscribers = async () => {
+    setIsLoadingSubscribers(true);
+    const { data, error } = await supabase
+      .from('subscribers')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!error && data) {
+      setSubscribers(data);
+    }
+    setIsLoadingSubscribers(false);
+  };
+
+  // Fetch Company Requests
+  const fetchCompanyRequests = async () => {
+    setIsLoadingRequests(true);
+    const { data, error } = await supabase
+      .from('company_requests')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!error && data) {
+      setCompanyRequests(data);
+    }
+    setIsLoadingRequests(false);
+  };
+
   useEffect(() => {
     fetchLiveDatasets();
+    fetchSubscribers();
+    fetchCompanyRequests();
   }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -145,7 +169,7 @@ export default function AdminPage() {
     return isParenthesesNegative ? -Math.abs(num) : num;
   };
 
-  // Parsing Core Function (shared between standard upload and replace)
+  // Parsing Core Function
   const parseAndUploadWorkbook = async (
     file: File,
     companyDetails: { name: string; ticker: string; country: string; sector: string; id?: string }
@@ -193,8 +217,6 @@ export default function AdminPage() {
       indent: boolean;
     }> = [];
 
-    const parsedTabs: string[] = [];
-
     for (const sheetName of workbook.SheetNames) {
       const statementType = detectStatementType(sheetName);
       if (!statementType) continue;
@@ -227,7 +249,6 @@ export default function AdminPage() {
 
       if (yearColumns.length === 0) continue;
 
-      parsedTabs.push(`${sheetName} ➔ [${statementType.toUpperCase()}]`);
       const firstYearColIndex = Math.min(...yearColumns.map((y) => y.colIndex));
 
       for (let r = headerRowIndex + 1; r < jsonRows.length; r++) {
@@ -277,19 +298,16 @@ export default function AdminPage() {
     }
 
     if (statementEntries.length === 0) {
-      throw new Error(
-        `Could not extract line items from "${file.name}". Ensure financial sheets and year headers (e.g. 2021, 2022) are present.`
-      );
+      throw new Error(`Could not extract line items from "${file.name}". Ensure financial sheets and year headers are present.`);
     }
 
-    // Overwrite existing statement rows
     await supabase.from('financial_statements').delete().eq('company_id', companyId);
 
     const { error: insertErr } = await supabase.from('financial_statements').insert(statementEntries);
 
     if (insertErr) throw new Error(`Database upload failed: ${insertErr.message}`);
 
-    return { companyId, lineCount: statementEntries.length, parsedTabs };
+    return { companyId, lineCount: statementEntries.length };
   };
 
   // Form Upload Handler
@@ -323,7 +341,7 @@ export default function AdminPage() {
     }
   };
 
-  // Replace Dataset Handler (Row Action)
+  // Replace Dataset Handler
   const handleTriggerReplace = (company: LiveCompany) => {
     setReplaceTargetCompany(company);
     if (replaceFileInputRef.current) {
@@ -357,7 +375,7 @@ export default function AdminPage() {
     }
   };
 
-  // Download Dataset Handler (Row Action)
+  // Download Dataset Handler
   const handleDownloadCompany = async (company: LiveCompany) => {
     setIsDownloadingId(company.id);
 
@@ -383,10 +401,8 @@ export default function AdminPage() {
         const stmtRows = statements.filter((s) => s.statement_type.toLowerCase() === stmtType);
         if (stmtRows.length === 0) return;
 
-        // Extract unique years
         const years = Array.from(new Set(stmtRows.map((s) => s.fiscal_year))).sort();
 
-        // Group by line item preserving order
         const lineItemMap = new Map<string, Record<string, number>>();
         stmtRows.forEach((s) => {
           if (!lineItemMap.has(s.line_item)) {
@@ -395,7 +411,6 @@ export default function AdminPage() {
           lineItemMap.get(s.line_item)![s.fiscal_year] = s.amount;
         });
 
-        // Construct sheet matrix
         const sheetData: any[][] = [];
         sheetData.push(['Line Item', ...years.map((y) => `FY ${y}`)]);
 
@@ -439,22 +454,20 @@ export default function AdminPage() {
     }
   };
 
-  const toggleSuggestionStatus = (id: string) => {
-    setSuggestions((prev) =>
-      prev.map((s) => {
-        if (s.id === id) {
-          const nextStatus: Suggestion['status'] =
-            s.status === 'Pending' ? 'In Progress' : s.status === 'In Progress' ? 'Completed' : 'Pending';
-          return { ...s, status: nextStatus };
-        }
-        return s;
-      })
+  // Toggle Company Request Status in Supabase
+  const toggleRequestStatus = async (id: string, currentStatus: CompanyRequest['status']) => {
+    const nextStatus: CompanyRequest['status'] =
+      currentStatus === 'Pending' ? 'In Progress' : currentStatus === 'In Progress' ? 'Completed' : 'Pending';
+
+    setCompanyRequests((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, status: nextStatus } : r))
     );
+
+    await supabase.from('company_requests').update({ status: nextStatus }).eq('id', id);
   };
 
   return (
     <div className="min-h-screen bg-white text-[#1E2430] flex flex-col font-sans">
-      {/* Hidden File Input for Replace Action */}
       <input
         type="file"
         accept=".xlsx, .xls"
@@ -525,7 +538,7 @@ export default function AdminPage() {
                 : 'border-transparent text-[#667085] hover:text-[#1E2430]'
             }`}
           >
-            💡 Company Requests ({suggestions.length})
+            💡 Company Requests ({companyRequests.length})
           </button>
         </div>
 
@@ -701,32 +714,24 @@ export default function AdminPage() {
                           </td>
                           <td className="p-3 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              {/* Download Excel */}
                               <button
                                 onClick={() => handleDownloadCompany(comp)}
                                 disabled={isDownloadingId === comp.id}
                                 className="bg-blue-50 hover:bg-blue-100 text-[#2F6FED] border border-blue-200 px-2.5 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-50"
-                                title="Download Excel workbook"
                               >
                                 {isDownloadingId === comp.id ? 'Exporting...' : '📥 Download'}
                               </button>
-
-                              {/* Replace Dataset */}
                               <button
                                 onClick={() => handleTriggerReplace(comp)}
                                 disabled={isReplacingId === comp.id}
                                 className="bg-emerald-50 hover:bg-emerald-100 text-[#0F8B8D] border border-emerald-200 px-2.5 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-50"
-                                title="Upload new Excel file to replace this dataset"
                               >
                                 {isReplacingId === comp.id ? 'Replacing...' : '🔄 Replace'}
                               </button>
-
-                              {/* Delete Dataset */}
                               <button
                                 onClick={() => handleDeleteCompany(comp.id, comp.name)}
                                 disabled={isDeletingId === comp.id}
                                 className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-2.5 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-50"
-                                title="Delete company and all financial statements"
                               >
                                 {isDeletingId === comp.id ? 'Deleting...' : '🗑️ Delete'}
                               </button>
@@ -746,70 +751,120 @@ export default function AdminPage() {
         {activeTab === 'subscribers' && (
           <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
             <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-[#F8FAFC]">
-              <h2 className="text-sm font-bold text-[#1E2430]">Email Notification Subscribers</h2>
-              <span className="text-xs text-[#667085]">Total: {subscribers.length}</span>
+              <div>
+                <h2 className="text-sm font-bold text-[#1E2430]">Email Notification Subscribers</h2>
+                <p className="text-[11px] text-[#667085]">Live subscriptions submitted via homepage</p>
+              </div>
+              <button
+                onClick={fetchSubscribers}
+                className="text-xs text-[#2F6FED] hover:underline font-semibold"
+              >
+                ↻ Refresh List
+              </button>
             </div>
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-[#F1F5F9] text-xs font-semibold text-[#273142] border-b border-gray-200">
-                  <th className="p-3">Email Address</th>
-                  <th className="p-3">Subscription Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 text-xs">
-                {subscribers.map((sub) => (
-                  <tr key={sub.id} className="hover:bg-gray-50 text-[#273142]">
-                    <td className="p-3 font-mono text-[#1E2430]">{sub.email}</td>
-                    <td className="p-3 text-[#667085]">{sub.subscribedAt}</td>
+
+            {isLoadingSubscribers ? (
+              <div className="p-8 text-center text-xs text-[#667085]">Loading subscribers...</div>
+            ) : subscribers.length === 0 ? (
+              <div className="p-8 text-center text-xs text-[#667085]">No subscribers recorded yet.</div>
+            ) : (
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-[#F1F5F9] text-xs font-semibold text-[#273142] border-b border-gray-200">
+                    <th className="p-3">Subscriber Email</th>
+                    <th className="p-3">Subscription Date</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-200 text-xs">
+                  {subscribers.map((sub) => {
+                    const formattedDate = new Date(sub.created_at).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    });
+
+                    return (
+                      <tr key={sub.id} className="hover:bg-gray-50 text-[#273142]">
+                        <td className="p-3 font-mono font-medium text-[#1E2430]">{sub.email}</td>
+                        <td className="p-3 text-[#667085]">{formattedDate}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
 
-        {/* TAB 4: SUGGESTIONS */}
+        {/* TAB 4: COMPANY REQUESTS */}
         {activeTab === 'suggestions' && (
           <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
             <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-[#F8FAFC]">
-              <h2 className="text-sm font-bold text-[#1E2430]">User-Suggested Companies</h2>
-              <span className="text-xs text-[#667085]">Click status badge to toggle</span>
+              <div>
+                <h2 className="text-sm font-bold text-[#1E2430]">User-Suggested Companies</h2>
+                <p className="text-[11px] text-[#667085]">Requests submitted via homepage</p>
+              </div>
+              <button
+                onClick={fetchCompanyRequests}
+                className="text-xs text-[#2F6FED] hover:underline font-semibold"
+              >
+                ↻ Refresh List
+              </button>
             </div>
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-[#F1F5F9] text-xs font-semibold text-[#273142] border-b border-gray-200">
-                  <th className="p-3">Company Name</th>
-                  <th className="p-3">Country</th>
-                  <th className="p-3">Requester Email</th>
-                  <th className="p-3">Requested Date</th>
-                  <th className="p-3">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 text-xs">
-                {suggestions.map((s) => (
-                  <tr key={s.id} className="hover:bg-gray-50 text-[#273142]">
-                    <td className="p-3 font-bold text-[#1E2430]">{s.companyName}</td>
-                    <td className="p-3 text-[#2F6FED]">{s.country}</td>
-                    <td className="p-3 font-mono text-[#667085]">{s.email}</td>
-                    <td className="p-3 text-[#667085]">{s.requestedAt}</td>
-                    <td className="p-3">
-                      <button
-                        onClick={() => toggleSuggestionStatus(s.id)}
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
-                          s.status === 'Completed'
-                            ? 'bg-[#0F8B8D]/15 text-[#0F8B8D] border border-[#0F8B8D]/30'
-                            : s.status === 'In Progress'
-                            ? 'bg-[#2F6FED]/15 text-[#2F6FED] border border-[#2F6FED]/30'
-                            : 'bg-gray-100 text-[#667085] border border-gray-300'
-                        }`}
-                      >
-                        {s.status}
-                      </button>
-                    </td>
+
+            {isLoadingRequests ? (
+              <div className="p-8 text-center text-xs text-[#667085]">Loading company requests...</div>
+            ) : companyRequests.length === 0 ? (
+              <div className="p-8 text-center text-xs text-[#667085]">No company requests submitted yet.</div>
+            ) : (
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-[#F1F5F9] text-xs font-semibold text-[#273142] border-b border-gray-200">
+                    <th className="p-3">Company Name</th>
+                    <th className="p-3">Country</th>
+                    <th className="p-3">Requester's Email</th>
+                    <th className="p-3">Request Date</th>
+                    <th className="p-3">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-200 text-xs">
+                  {companyRequests.map((req) => {
+                    const formattedDate = new Date(req.created_at).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    });
+
+                    return (
+                      <tr key={req.id} className="hover:bg-gray-50 text-[#273142]">
+                        <td className="p-3 font-bold text-[#1E2430]">{req.company_name}</td>
+                        <td className="p-3 text-[#2F6FED] font-medium">{req.country}</td>
+                        <td className="p-3 font-mono text-[#667085]">{req.email}</td>
+                        <td className="p-3 text-[#667085]">{formattedDate}</td>
+                        <td className="p-3">
+                          <button
+                            onClick={() => toggleRequestStatus(req.id, req.status)}
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                              req.status === 'Completed'
+                                ? 'bg-[#0F8B8D]/15 text-[#0F8B8D] border border-[#0F8B8D]/30'
+                                : req.status === 'In Progress'
+                                ? 'bg-[#2F6FED]/15 text-[#2F6FED] border border-[#2F6FED]/30'
+                                : 'bg-gray-100 text-[#667085] border border-gray-300'
+                            }`}
+                          >
+                            {req.status}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
       </main>
