@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
 
@@ -53,6 +53,12 @@ export default function AdminPage() {
   const [liveCompanies, setLiveCompanies] = useState<LiveCompany[]>([]);
   const [isLoadingManage, setIsLoadingManage] = useState(false);
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
+  const [isDownloadingId, setIsDownloadingId] = useState<string | null>(null);
+  const [isReplacingId, setIsReplacingId] = useState<string | null>(null);
+
+  // Hidden File Input Ref for Replace Action
+  const replaceFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [replaceTargetCompany, setReplaceTargetCompany] = useState<LiveCompany | null>(null);
 
   // Form input states
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -98,7 +104,7 @@ export default function AdminPage() {
     }
   };
 
-  // 1. Helper: Detect Statement Type from Tab Name
+  // Helper: Detect Statement Type from Tab Name
   const detectStatementType = (sheetName: string): string | null => {
     const name = sheetName.toLowerCase();
     if (name.includes('pnl') || name.includes('p&l') || name.includes('income') || name.includes('profit') || name.includes('loss')) return 'pnl';
@@ -108,7 +114,7 @@ export default function AdminPage() {
     return null;
   };
 
-  // 2. Helper: Extract Year from Header Cell (2023, FY23, 31/12/2023)
+  // Helper: Extract Year from Header Cell
   const extractYear = (cellVal: any): string | null => {
     if (cellVal === null || cellVal === undefined) return null;
     const str = String(cellVal).trim();
@@ -119,7 +125,7 @@ export default function AdminPage() {
     return null;
   };
 
-  // 3. Helper: Convert Financial Number Formats
+  // Helper: Convert Financial Number Formats
   const parseFinancialNumber = (val: any): number => {
     if (val === null || val === undefined || val === '') return 0;
     if (typeof val === 'number') return isNaN(val) ? 0 : val;
@@ -139,35 +145,33 @@ export default function AdminPage() {
     return isParenthesesNegative ? -Math.abs(num) : num;
   };
 
-  // Handle Excel Upload
-  const handleUploadSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedFile) return;
+  // Parsing Core Function (shared between standard upload and replace)
+  const parseAndUploadWorkbook = async (
+    file: File,
+    companyDetails: { name: string; ticker: string; country: string; sector: string; id?: string }
+  ) => {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array' });
 
-    setIsUploading(true);
-    setUploadStatus(null);
+    let companyId = companyDetails.id;
 
-    try {
-      const buffer = await selectedFile.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: 'array' });
-
-      // Check or create company in Supabase
+    if (!companyId) {
       const { data: existingCompany } = await supabase
         .from('companies')
         .select('id')
-        .ilike('name', targetCompany)
+        .ilike('name', companyDetails.name)
         .maybeSingle();
 
-      let companyId = existingCompany?.id;
+      companyId = existingCompany?.id;
 
       if (!companyId) {
         const { data: newCompany, error: createErr } = await supabase
           .from('companies')
           .insert({
-            name: targetCompany,
-            ticker: targetTicker,
-            country: targetCountry,
-            sector: targetSector,
+            name: companyDetails.name,
+            ticker: companyDetails.ticker,
+            country: companyDetails.country,
+            sector: companyDetails.sector,
             currency: 'USD / ZWG',
           })
           .select('id')
@@ -176,118 +180,139 @@ export default function AdminPage() {
         if (createErr) throw new Error(`Failed to create company: ${createErr.message}`);
         companyId = newCompany.id;
       }
+    }
 
-      const statementEntries: Array<{
-        company_id: string;
-        statement_type: string;
-        line_item: string;
-        fiscal_year: string;
-        amount: number;
-        is_header: boolean;
-        is_total: boolean;
-        indent: boolean;
-      }> = [];
+    const statementEntries: Array<{
+      company_id: string;
+      statement_type: string;
+      line_item: string;
+      fiscal_year: string;
+      amount: number;
+      is_header: boolean;
+      is_total: boolean;
+      indent: boolean;
+    }> = [];
 
-      const parsedTabs: string[] = [];
+    const parsedTabs: string[] = [];
 
-      for (const sheetName of workbook.SheetNames) {
-        const statementType = detectStatementType(sheetName);
-        if (!statementType) continue;
+    for (const sheetName of workbook.SheetNames) {
+      const statementType = detectStatementType(sheetName);
+      if (!statementType) continue;
 
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      const worksheet = workbook.Sheets[sheetName];
+      const jsonRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
-        if (jsonRows.length < 1) continue;
+      if (jsonRows.length < 1) continue;
 
-        let headerRowIndex = -1;
-        let yearColumns: Array<{ year: string; colIndex: number }> = [];
+      let headerRowIndex = -1;
+      let yearColumns: Array<{ year: string; colIndex: number }> = [];
 
-        for (let i = 0; i < Math.min(jsonRows.length, 15); i++) {
-          const row = jsonRows[i];
-          if (!row || !Array.isArray(row)) continue;
+      for (let i = 0; i < Math.min(jsonRows.length, 15); i++) {
+        const row = jsonRows[i];
+        if (!row || !Array.isArray(row)) continue;
 
-          const foundYears: Array<{ year: string; colIndex: number }> = [];
-          row.forEach((cell: any, colIdx: number) => {
-            const yr = extractYear(cell);
-            if (yr) {
-              foundYears.push({ year: yr, colIndex: colIdx });
-            }
-          });
+        const foundYears: Array<{ year: string; colIndex: number }> = [];
+        row.forEach((cell: any, colIdx: number) => {
+          const yr = extractYear(cell);
+          if (yr) {
+            foundYears.push({ year: yr, colIndex: colIdx });
+          }
+        });
 
-          if (foundYears.length > yearColumns.length) {
-            yearColumns = foundYears;
-            headerRowIndex = i;
+        if (foundYears.length > yearColumns.length) {
+          yearColumns = foundYears;
+          headerRowIndex = i;
+        }
+      }
+
+      if (yearColumns.length === 0) continue;
+
+      parsedTabs.push(`${sheetName} ➔ [${statementType.toUpperCase()}]`);
+      const firstYearColIndex = Math.min(...yearColumns.map((y) => y.colIndex));
+
+      for (let r = headerRowIndex + 1; r < jsonRows.length; r++) {
+        const row = jsonRows[r];
+        if (!row || !Array.isArray(row)) continue;
+
+        let rawLabel = '';
+        for (let c = 0; c < firstYearColIndex; c++) {
+          const cellText = String(row[c] || '').trim();
+          if (cellText && isNaN(Number(cellText)) && cellText.length > rawLabel.length) {
+            rawLabel = cellText;
           }
         }
 
-        if (yearColumns.length === 0) continue;
-
-        parsedTabs.push(`${sheetName} ➔ [${statementType.toUpperCase()}]`);
-        const firstYearColIndex = Math.min(...yearColumns.map((y) => y.colIndex));
-
-        for (let r = headerRowIndex + 1; r < jsonRows.length; r++) {
-          const row = jsonRows[r];
-          if (!row || !Array.isArray(row)) continue;
-
-          let rawLabel = '';
+        if (!rawLabel) {
           for (let c = 0; c < firstYearColIndex; c++) {
             const cellText = String(row[c] || '').trim();
-            if (cellText && isNaN(Number(cellText)) && cellText.length > rawLabel.length) {
+            if (cellText) {
               rawLabel = cellText;
+              break;
             }
           }
-
-          if (!rawLabel) {
-            for (let c = 0; c < firstYearColIndex; c++) {
-              const cellText = String(row[c] || '').trim();
-              if (cellText) {
-                rawLabel = cellText;
-                break;
-              }
-            }
-          }
-
-          if (!rawLabel) continue;
-
-          const isHeader = rawLabel.toUpperCase() === rawLabel && !row.some((val: any, i: number) => i >= firstYearColIndex && val !== '' && val !== null);
-          const isTotal = rawLabel.toLowerCase().includes('total') || rawLabel.toLowerCase().includes('profit') || rawLabel.toLowerCase().includes('net');
-          const indent = String(row[0] || '').startsWith(' ') || String(row[0] || '').startsWith('\t');
-
-          yearColumns.forEach(({ year, colIndex }) => {
-            const rawVal = row[colIndex];
-            const numericVal = parseFinancialNumber(rawVal);
-
-            statementEntries.push({
-              company_id: companyId,
-              statement_type: statementType,
-              line_item: rawLabel,
-              fiscal_year: year,
-              amount: numericVal,
-              is_header: isHeader,
-              is_total: isTotal,
-              indent,
-            });
-          });
         }
+
+        if (!rawLabel) continue;
+
+        const isHeader = rawLabel.toUpperCase() === rawLabel && !row.some((val: any, i: number) => i >= firstYearColIndex && val !== '' && val !== null);
+        const isTotal = rawLabel.toLowerCase().includes('total') || rawLabel.toLowerCase().includes('profit') || rawLabel.toLowerCase().includes('net');
+        const indent = String(row[0] || '').startsWith(' ') || String(row[0] || '').startsWith('\t');
+
+        yearColumns.forEach(({ year, colIndex }) => {
+          const rawVal = row[colIndex];
+          const numericVal = parseFinancialNumber(rawVal);
+
+          statementEntries.push({
+            company_id: companyId,
+            statement_type: statementType,
+            line_item: rawLabel,
+            fiscal_year: year,
+            amount: numericVal,
+            is_header: isHeader,
+            is_total: isTotal,
+            indent,
+          });
+        });
       }
+    }
 
-      if (statementEntries.length === 0) {
-        throw new Error(
-          `Could not extract line items from "${selectedFile.name}". Ensure year headers (e.g. 2021, 2022) are present.`
-        );
-      }
+    if (statementEntries.length === 0) {
+      throw new Error(
+        `Could not extract line items from "${file.name}". Ensure financial sheets and year headers (e.g. 2021, 2022) are present.`
+      );
+    }
 
-      await supabase.from('financial_statements').delete().eq('company_id', companyId);
+    // Overwrite existing statement rows
+    await supabase.from('financial_statements').delete().eq('company_id', companyId);
 
-      const { error: insertErr } = await supabase.from('financial_statements').insert(statementEntries);
+    const { error: insertErr } = await supabase.from('financial_statements').insert(statementEntries);
 
-      if (insertErr) throw new Error(`Database upload failed: ${insertErr.message}`);
+    if (insertErr) throw new Error(`Database upload failed: ${insertErr.message}`);
+
+    return { companyId, lineCount: statementEntries.length, parsedTabs };
+  };
+
+  // Form Upload Handler
+  const handleUploadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFile) return;
+
+    setIsUploading(true);
+    setUploadStatus(null);
+
+    try {
+      const res = await parseAndUploadWorkbook(selectedFile, {
+        name: targetCompany,
+        ticker: targetTicker,
+        country: targetCountry,
+        sector: targetSector,
+      });
 
       setUploadStatus({
-        message: `Successfully uploaded ${selectedFile.name} for ${targetCompany}! Uploaded ${statementEntries.length} lines to Supabase.`,
+        message: `Successfully uploaded ${selectedFile.name} for ${targetCompany}! Uploaded ${res.lineCount} lines to Supabase.`,
       });
       setSelectedFile(null);
-      fetchLiveDatasets(); // Refresh datasets table
+      fetchLiveDatasets();
     } catch (err: any) {
       setUploadStatus({
         message: err.message || 'An error occurred during upload.',
@@ -298,7 +323,101 @@ export default function AdminPage() {
     }
   };
 
-  // Delete Dataset Function
+  // Replace Dataset Handler (Row Action)
+  const handleTriggerReplace = (company: LiveCompany) => {
+    setReplaceTargetCompany(company);
+    if (replaceFileInputRef.current) {
+      replaceFileInputRef.current.value = '';
+      replaceFileInputRef.current.click();
+    }
+  };
+
+  const handleReplaceFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !e.target.files[0] || !replaceTargetCompany) return;
+
+    const file = e.target.files[0];
+    setIsReplacingId(replaceTargetCompany.id);
+
+    try {
+      const res = await parseAndUploadWorkbook(file, {
+        id: replaceTargetCompany.id,
+        name: replaceTargetCompany.name,
+        ticker: replaceTargetCompany.ticker,
+        country: replaceTargetCompany.country,
+        sector: replaceTargetCompany.sector,
+      });
+
+      alert(`Successfully replaced dataset for ${replaceTargetCompany.name}! Updated with ${res.lineCount} financial rows.`);
+      fetchLiveDatasets();
+    } catch (err: any) {
+      alert(`Replace failed: ${err.message}`);
+    } finally {
+      setIsReplacingId(null);
+      setReplaceTargetCompany(null);
+    }
+  };
+
+  // Download Dataset Handler (Row Action)
+  const handleDownloadCompany = async (company: LiveCompany) => {
+    setIsDownloadingId(company.id);
+
+    try {
+      const { data: statements, error } = await supabase
+        .from('financial_statements')
+        .select('*')
+        .eq('company_id', company.id);
+
+      if (error || !statements || statements.length === 0) {
+        throw new Error('No financial statements found for this company.');
+      }
+
+      const workbook = XLSX.utils.book_new();
+      const tabNames: Record<string, string> = {
+        pnl: 'P&L',
+        bs: 'Balance Sheet',
+        cf: 'Cash Flow',
+        soce: 'SOCE',
+      };
+
+      Object.keys(tabNames).forEach((stmtType) => {
+        const stmtRows = statements.filter((s) => s.statement_type.toLowerCase() === stmtType);
+        if (stmtRows.length === 0) return;
+
+        // Extract unique years
+        const years = Array.from(new Set(stmtRows.map((s) => s.fiscal_year))).sort();
+
+        // Group by line item preserving order
+        const lineItemMap = new Map<string, Record<string, number>>();
+        stmtRows.forEach((s) => {
+          if (!lineItemMap.has(s.line_item)) {
+            lineItemMap.set(s.line_item, {});
+          }
+          lineItemMap.get(s.line_item)![s.fiscal_year] = s.amount;
+        });
+
+        // Construct sheet matrix
+        const sheetData: any[][] = [];
+        sheetData.push(['Line Item', ...years.map((y) => `FY ${y}`)]);
+
+        lineItemMap.forEach((yearVals, label) => {
+          const row = [label, ...years.map((y) => yearVals[y] ?? '')];
+          sheetData.push(row);
+        });
+
+        const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+        XLSX.utils.book_append_sheet(workbook, worksheet, tabNames[stmtType]);
+      });
+
+      const safeName = company.name.replace(/[^a-zA-Z0-9]/g, '_');
+      XLSX.writeFile(workbook, `${safeName}_Financial_Spreads.xlsx`);
+    } catch (err: any) {
+      alert(`Download failed: ${err.message}`);
+    } finally {
+      setIsDownloadingId(null);
+    }
+  };
+
+  // Delete Dataset Handler
   const handleDeleteCompany = async (companyId: string, companyName: string) => {
     if (!window.confirm(`Are you sure you want to delete ${companyName} and all its financial statements from Supabase?`)) {
       return;
@@ -307,10 +426,7 @@ export default function AdminPage() {
     setIsDeletingId(companyId);
 
     try {
-      // 1. Delete financial statements
       await supabase.from('financial_statements').delete().eq('company_id', companyId);
-
-      // 2. Delete company entry
       const { error } = await supabase.from('companies').delete().eq('id', companyId);
 
       if (error) throw error;
@@ -338,6 +454,15 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-white text-[#1E2430] flex flex-col font-sans">
+      {/* Hidden File Input for Replace Action */}
+      <input
+        type="file"
+        accept=".xlsx, .xls"
+        ref={replaceFileInputRef}
+        onChange={handleReplaceFileSelected}
+        className="hidden"
+      />
+
       {/* Header */}
       <header className="border-b border-gray-200 bg-[#273142] text-white px-6 py-4 flex justify-between items-center">
         <div className="flex items-center gap-3">
@@ -530,63 +655,89 @@ export default function AdminPage() {
                 No live datasets found in Supabase. Upload an Excel file in the Upload tab to publish data.
               </div>
             ) : (
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#F1F5F9] text-xs font-semibold text-[#273142] border-b border-gray-200">
-                    <th className="p-3">Company</th>
-                    <th className="p-3">Country / Sector</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3">Line Items</th>
-                    <th className="p-3">Last Updated</th>
-                    <th className="p-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200 text-xs">
-                  {liveCompanies.map((comp) => {
-                    const lineItemCount = comp.financial_statements?.[0]?.count || 0;
-                    const formattedDate = new Date(comp.created_at).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    });
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[750px]">
+                  <thead>
+                    <tr className="bg-[#F1F5F9] text-xs font-semibold text-[#273142] border-b border-gray-200">
+                      <th className="p-3">Company</th>
+                      <th className="p-3">Country / Sector</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3">Line Items</th>
+                      <th className="p-3">Last Updated</th>
+                      <th className="p-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 text-xs">
+                    {liveCompanies.map((comp) => {
+                      const lineItemCount = comp.financial_statements?.[0]?.count || 0;
+                      const formattedDate = new Date(comp.created_at).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      });
 
-                    return (
-                      <tr key={comp.id} className="hover:bg-gray-50 text-[#273142]">
-                        <td className="p-3">
-                          <span className="font-bold text-[#1E2430] block">{comp.name}</span>
-                          <span className="text-[10px] text-gray-500 font-mono">{comp.ticker}</span>
-                        </td>
-                        <td className="p-3 text-[#667085]">
-                          <div>{comp.country}</div>
-                          <div className="text-[10px] text-gray-400">{comp.sector}</div>
-                        </td>
-                        <td className="p-3">
-                          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-[#0F8B8D]/15 text-[#0F8B8D] border border-[#0F8B8D]/30">
-                            ● LIVE
-                          </span>
-                        </td>
-                        <td className="p-3 font-mono text-[#1E2430]">
-                          {lineItemCount} rows
-                        </td>
-                        <td className="p-3 text-[#667085]">
-                          {formattedDate}
-                        </td>
-                        <td className="p-3 text-right">
-                          <button
-                            onClick={() => handleDeleteCompany(comp.id, comp.name)}
-                            disabled={isDeletingId === comp.id}
-                            className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-50"
-                          >
-                            {isDeletingId === comp.id ? 'Deleting...' : 'Delete Dataset'}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                      return (
+                        <tr key={comp.id} className="hover:bg-gray-50 text-[#273142]">
+                          <td className="p-3">
+                            <span className="font-bold text-[#1E2430] block">{comp.name}</span>
+                            <span className="text-[10px] text-gray-500 font-mono">{comp.ticker}</span>
+                          </td>
+                          <td className="p-3 text-[#667085]">
+                            <div>{comp.country}</div>
+                            <div className="text-[10px] text-gray-400">{comp.sector}</div>
+                          </td>
+                          <td className="p-3">
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-[#0F8B8D]/15 text-[#0F8B8D] border border-[#0F8B8D]/30">
+                              ● LIVE
+                            </span>
+                          </td>
+                          <td className="p-3 font-mono text-[#1E2430]">
+                            {lineItemCount} rows
+                          </td>
+                          <td className="p-3 text-[#667085]">
+                            {formattedDate}
+                          </td>
+                          <td className="p-3 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              {/* Download Excel */}
+                              <button
+                                onClick={() => handleDownloadCompany(comp)}
+                                disabled={isDownloadingId === comp.id}
+                                className="bg-blue-50 hover:bg-blue-100 text-[#2F6FED] border border-blue-200 px-2.5 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-50"
+                                title="Download Excel workbook"
+                              >
+                                {isDownloadingId === comp.id ? 'Exporting...' : '📥 Download'}
+                              </button>
+
+                              {/* Replace Dataset */}
+                              <button
+                                onClick={() => handleTriggerReplace(comp)}
+                                disabled={isReplacingId === comp.id}
+                                className="bg-emerald-50 hover:bg-emerald-100 text-[#0F8B8D] border border-emerald-200 px-2.5 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-50"
+                                title="Upload new Excel file to replace this dataset"
+                              >
+                                {isReplacingId === comp.id ? 'Replacing...' : '🔄 Replace'}
+                              </button>
+
+                              {/* Delete Dataset */}
+                              <button
+                                onClick={() => handleDeleteCompany(comp.id, comp.name)}
+                                disabled={isDeletingId === comp.id}
+                                className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-2.5 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-50"
+                                title="Delete company and all financial statements"
+                              >
+                                {isDeletingId === comp.id ? 'Deleting...' : '🗑️ Delete'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         )}
