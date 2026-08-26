@@ -14,7 +14,6 @@ interface LiveCompany {
   country: string;
   sector: string;
   created_at: string;
-  financial_statements?: { count: number }[];
 }
 
 interface Subscriber {
@@ -35,83 +34,52 @@ interface CompanyRequest {
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<AdminTab>('upload');
 
-  // Dynamic States
   const [liveCompanies, setLiveCompanies] = useState<LiveCompany[]>([]);
   const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
   const [companyRequests, setCompanyRequests] = useState<CompanyRequest[]>([]);
 
-  // Loading States
   const [isLoadingManage, setIsLoadingManage] = useState(false);
   const [isLoadingSubscribers, setIsLoadingSubscribers] = useState(false);
   const [isLoadingRequests, setIsLoadingRequests] = useState(false);
 
-  // Row Action Loading States
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
   const [isDownloadingId, setIsDownloadingId] = useState<string | null>(null);
   const [isReplacingId, setIsReplacingId] = useState<string | null>(null);
 
-  // Replace File Input Ref
   const replaceFileInputRef = useRef<HTMLInputElement | null>(null);
   const [replaceTargetCompany, setReplaceTargetCompany] = useState<LiveCompany | null>(null);
 
-  // Form input states
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [targetCompany, setTargetCompany] = useState('CBZ Holdings');
   const [targetTicker, setTargetTicker] = useState('CBZ.zw');
   const [targetCountry, setTargetCountry] = useState('Zimbabwe');
   const [targetSector, setTargetSector] = useState('Banking & Financial Services');
   
-  // Status & loading states
   const [uploadStatus, setUploadStatus] = useState<{ message: string; isError?: boolean } | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  // Fetch Live Datasets
   const fetchLiveDatasets = async () => {
     setIsLoadingManage(true);
     const { data, error } = await supabase
       .from('companies')
-      .select(`
-        id,
-        name,
-        ticker,
-        country,
-        sector,
-        created_at,
-        financial_statements(count)
-      `)
+      .select('id, name, ticker, country, sector, created_at')
       .order('created_at', { ascending: false });
 
-    if (!error && data) {
-      setLiveCompanies(data as unknown as LiveCompany[]);
-    }
+    if (!error && data) setLiveCompanies(data);
     setIsLoadingManage(false);
   };
 
-  // Fetch Subscribers
   const fetchSubscribers = async () => {
     setIsLoadingSubscribers(true);
-    const { data, error } = await supabase
-      .from('subscribers')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (!error && data) {
-      setSubscribers(data);
-    }
+    const { data, error } = await supabase.from('subscribers').select('*').order('created_at', { ascending: false });
+    if (!error && data) setSubscribers(data);
     setIsLoadingSubscribers(false);
   };
 
-  // Fetch Company Requests
   const fetchCompanyRequests = async () => {
     setIsLoadingRequests(true);
-    const { data, error } = await supabase
-      .from('company_requests')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (!error && data) {
-      setCompanyRequests(data);
-    }
+    const { data, error } = await supabase.from('company_requests').select('*').order('created_at', { ascending: false });
+    if (!error && data) setCompanyRequests(data);
     setIsLoadingRequests(false);
   };
 
@@ -128,7 +96,6 @@ export default function AdminPage() {
     }
   };
 
-  // Helper: Detect Tab Types for all 8 categories
   const detectSheetType = (sheetName: string): string | null => {
     const name = sheetName.toLowerCase().replace(/[^a-z0-9&]/g, '');
 
@@ -144,7 +111,6 @@ export default function AdminPage() {
     return null;
   };
 
-  // Helper: Extract Year from Header Cell
   const extractYear = (cellVal: any): string | null => {
     if (cellVal === null || cellVal === undefined) return null;
     const str = String(cellVal).trim();
@@ -155,32 +121,30 @@ export default function AdminPage() {
     return null;
   };
 
-  // Helper: Convert Financial Number Formats
-  const parseFinancialNumber = (val: any): { numeric: number; formatted: string } => {
-    if (val === null || val === undefined || val === '') return { numeric: 0, formatted: '-' };
-    const strVal = String(val).trim();
-
-    if (typeof val === 'number') {
-      return { numeric: isNaN(val) ? 0 : val, formatted: strVal };
+  const parseFinancialValue = (val: any): { numeric: number; formatted: string } => {
+    if (val === null || val === undefined || String(val).trim() === '') {
+      return { numeric: 0, formatted: '-' };
     }
 
-    if (!strVal || strVal === '-' || strVal === '—' || strVal === 'N/A') return { numeric: 0, formatted: '-' };
+    const strVal = String(val).trim();
+    if (strVal === '-' || strVal === '—' || strVal === 'N/A') {
+      return { numeric: 0, formatted: '-' };
+    }
 
     const isParenthesesNegative = /^\((.*)\)$/.test(strVal);
-    let cleanStr = strVal;
-    if (isParenthesesNegative) {
-      cleanStr = cleanStr.replace(/^\((.*)\)$/, '$1');
-    }
-
+    let cleanStr = isParenthesesNegative ? strVal.replace(/^\((.*)\)$/, '$1') : strVal;
     cleanStr = cleanStr.replace(/[^0-9.-]/g, '');
+
     const num = parseFloat(cleanStr);
 
-    if (isNaN(num)) return { numeric: 0, formatted: strVal };
+    if (isNaN(num)) {
+      return { numeric: 0, formatted: strVal };
+    }
+
     const numeric = isParenthesesNegative ? -Math.abs(num) : num;
     return { numeric, formatted: strVal };
   };
 
-  // Parsing & Ingestion Core Function
   const parseAndUploadWorkbook = async (
     file: File,
     companyDetails: { name: string; ticker: string; country: string; sector: string; id?: string }
@@ -217,7 +181,6 @@ export default function AdminPage() {
       }
     }
 
-    // Collections to insert across tables
     const infoEntries: Array<{ company_id: string; field_label: string; field_value: string }> = [];
     const mgmtEntries: Array<{ company_id: string; person_name: string; role_title: string; category: string }> = [];
     const shareholderEntries: Array<{ company_id: string; shareholder_name: string; shares_count: string; percentage: string }> = [];
@@ -233,8 +196,6 @@ export default function AdminPage() {
       indent: boolean;
     }> = [];
 
-    const parsedTabs: string[] = [];
-
     for (const sheetName of workbook.SheetNames) {
       const tabType = detectSheetType(sheetName);
       if (!tabType) continue;
@@ -244,16 +205,17 @@ export default function AdminPage() {
 
       if (jsonRows.length < 1) continue;
 
-      parsedTabs.push(`${sheetName} ➔ [${tabType.toUpperCase()}]`);
-
-      // 1. Company Info Parser (Key/Value pairs)
+      // 1. Company Info Parser
       if (tabType === 'info') {
         for (const row of jsonRows) {
-          if (!row || row.length < 2) continue;
-          const label = String(row[0] || '').trim();
-          const val = String(row[1] || '').trim();
-          if (label && val) {
-            infoEntries.push({ company_id: companyId, field_label: label, field_value: val });
+          if (!row || !Array.isArray(row)) continue;
+          const nonCols = row.map((c) => String(c || '').trim()).filter(Boolean);
+          if (nonCols.length >= 2) {
+            infoEntries.push({
+              company_id: companyId,
+              field_label: nonCols[0],
+              field_value: nonCols.slice(1).join(' - '),
+            });
           }
         }
         continue;
@@ -261,14 +223,20 @@ export default function AdminPage() {
 
       // 2. Directors & Management Parser
       if (tabType === 'management') {
-        for (let r = 1; r < jsonRows.length; r++) {
-          const row = jsonRows[r];
-          if (!row || !row[0]) continue;
-          const person = String(row[0] || '').trim();
-          const role = String(row[1] || '').trim();
-          const cat = String(row[2] || 'Board / Executive').trim();
-          if (person) {
-            mgmtEntries.push({ company_id: companyId, person_name: person, role_title: role || 'Director', category: cat });
+        for (const row of jsonRows) {
+          if (!row || !Array.isArray(row)) continue;
+          const nonCols = row.map((c) => String(c || '').trim()).filter(Boolean);
+          if (nonCols.length >= 1) {
+            const firstLabel = nonCols[0].toLowerCase();
+            if (firstLabel.includes('name') || firstLabel.includes('person') || firstLabel === 's/n' || firstLabel === 'no.') {
+              continue;
+            }
+            mgmtEntries.push({
+              company_id: companyId,
+              person_name: nonCols[0],
+              role_title: nonCols[1] || 'Director',
+              category: nonCols[2] || 'Board / Executive',
+            });
           }
         }
         continue;
@@ -276,20 +244,26 @@ export default function AdminPage() {
 
       // 3. Shareholding Parser
       if (tabType === 'shareholding') {
-        for (let r = 1; r < jsonRows.length; r++) {
-          const row = jsonRows[r];
-          if (!row || !row[0]) continue;
-          const name = String(row[0] || '').trim();
-          const shares = String(row[1] || '-').trim();
-          const pct = String(row[2] || '-').trim();
-          if (name) {
-            shareholderEntries.push({ company_id: companyId, shareholder_name: name, shares_count: shares, percentage: pct });
+        for (const row of jsonRows) {
+          if (!row || !Array.isArray(row)) continue;
+          const nonCols = row.map((c) => String(c || '').trim()).filter(Boolean);
+          if (nonCols.length >= 1) {
+            const firstLabel = nonCols[0].toLowerCase();
+            if (firstLabel.includes('name') || firstLabel.includes('shareholder') || firstLabel === 's/n' || firstLabel === 'no.') {
+              continue;
+            }
+            shareholderEntries.push({
+              company_id: companyId,
+              shareholder_name: nonCols[0],
+              shares_count: nonCols[1] || '-',
+              percentage: nonCols[2] || '-',
+            });
           }
         }
         continue;
       }
 
-      // 4. Multi-Year Financial Statements & Ratios Parser (pnl, bs, cf, soce, ratios)
+      // 4. Financial Statements & Ratios Parser
       let headerRowIndex = -1;
       let yearColumns: Array<{ year: string; colIndex: number }> = [];
 
@@ -300,9 +274,7 @@ export default function AdminPage() {
         const foundYears: Array<{ year: string; colIndex: number }> = [];
         row.forEach((cell: any, colIdx: number) => {
           const yr = extractYear(cell);
-          if (yr) {
-            foundYears.push({ year: yr, colIndex: colIdx });
-          }
+          if (yr) foundYears.push({ year: yr, colIndex: colIdx });
         });
 
         if (foundYears.length > yearColumns.length) {
@@ -334,7 +306,7 @@ export default function AdminPage() {
 
         yearColumns.forEach(({ year, colIndex }) => {
           const rawVal = row[colIndex];
-          const parsed = parseFinancialNumber(rawVal);
+          const parsed = parseFinancialValue(rawVal);
 
           statementEntries.push({
             company_id: companyId,
@@ -351,13 +323,11 @@ export default function AdminPage() {
       }
     }
 
-    // Clear old records for clean update
     await supabase.from('company_info_items').delete().eq('company_id', companyId);
     await supabase.from('directors_management').delete().eq('company_id', companyId);
     await supabase.from('shareholders').delete().eq('company_id', companyId);
     await supabase.from('financial_statements').delete().eq('company_id', companyId);
 
-    // Insert new records into respective tables
     if (infoEntries.length > 0) await supabase.from('company_info_items').insert(infoEntries);
     if (mgmtEntries.length > 0) await supabase.from('directors_management').insert(mgmtEntries);
     if (shareholderEntries.length > 0) await supabase.from('shareholders').insert(shareholderEntries);
@@ -365,13 +335,12 @@ export default function AdminPage() {
 
     const totalUploaded = infoEntries.length + mgmtEntries.length + shareholderEntries.length + statementEntries.length;
     if (totalUploaded === 0) {
-      throw new Error(`Could not extract data from "${file.name}". Ensure tabs match Info, Directors, P&L, BS, CF, SOCE, Ratios, or Shareholding.`);
+      throw new Error(`Could not extract data from "${file.name}". Check sheet tab names.`);
     }
 
-    return { companyId, totalUploaded, parsedTabs };
+    return { companyId, totalUploaded };
   };
 
-  // Form Upload Handler
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFile) return;
@@ -388,7 +357,7 @@ export default function AdminPage() {
       });
 
       setUploadStatus({
-        message: `Successfully uploaded ${selectedFile.name} for ${targetCompany}! Uploaded ${res.totalUploaded} records across detected tabs.`,
+        message: `Successfully uploaded ${selectedFile.name} for ${targetCompany}! Processed ${res.totalUploaded} records across detected tabs.`,
       });
       setSelectedFile(null);
       fetchLiveDatasets();
@@ -402,7 +371,6 @@ export default function AdminPage() {
     }
   };
 
-  // Replace Dataset Handler
   const handleTriggerReplace = (company: LiveCompany) => {
     setReplaceTargetCompany(company);
     if (replaceFileInputRef.current) {
@@ -426,7 +394,7 @@ export default function AdminPage() {
         sector: replaceTargetCompany.sector,
       });
 
-      alert(`Successfully replaced dataset for ${replaceTargetCompany.name}! Updated with ${res.totalUploaded} records.`);
+      alert(`Successfully replaced dataset for ${replaceTargetCompany.name}! Uploaded ${res.totalUploaded} records.`);
       fetchLiveDatasets();
     } catch (err: any) {
       alert(`Replace failed: ${err.message}`);
@@ -436,14 +404,11 @@ export default function AdminPage() {
     }
   };
 
-  // Download Dataset Handler
   const handleDownloadCompany = async (company: LiveCompany) => {
     setIsDownloadingId(company.id);
 
     try {
       const workbook = XLSX.utils.book_new();
-
-      // Fetch financial statements & ratios
       const { data: statements } = await supabase.from('financial_statements').select('*').eq('company_id', company.id);
 
       if (statements && statements.length > 0) {
@@ -460,8 +425,8 @@ export default function AdminPage() {
           if (stmtRows.length === 0) return;
 
           const years = Array.from(new Set(stmtRows.map((s) => s.fiscal_year))).sort();
-
           const lineItemMap = new Map<string, Record<string, string>>();
+
           stmtRows.forEach((s) => {
             if (!lineItemMap.has(s.line_item)) lineItemMap.set(s.line_item, {});
             lineItemMap.get(s.line_item)![s.fiscal_year] = s.amount_text || String(s.amount);
@@ -489,11 +454,8 @@ export default function AdminPage() {
     }
   };
 
-  // Delete Dataset Handler
   const handleDeleteCompany = async (companyId: string, companyName: string) => {
-    if (!window.confirm(`Are you sure you want to delete ${companyName} and all its data from Supabase?`)) {
-      return;
-    }
+    if (!window.confirm(`Are you sure you want to delete ${companyName} and all its data from Supabase?`)) return;
 
     setIsDeletingId(companyId);
 
@@ -505,7 +467,6 @@ export default function AdminPage() {
       const { error } = await supabase.from('companies').delete().eq('id', companyId);
 
       if (error) throw error;
-
       setLiveCompanies((prev) => prev.filter((c) => c.id !== companyId));
     } catch (err: any) {
       alert(`Error deleting company: ${err.message}`);
@@ -514,27 +475,17 @@ export default function AdminPage() {
     }
   };
 
-  // Toggle Company Request Status
   const toggleRequestStatus = async (id: string, currentStatus: CompanyRequest['status']) => {
     const nextStatus: CompanyRequest['status'] =
       currentStatus === 'Pending' ? 'In Progress' : currentStatus === 'In Progress' ? 'Completed' : 'Pending';
 
-    setCompanyRequests((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, status: nextStatus } : r))
-    );
-
+    setCompanyRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: nextStatus } : r)));
     await supabase.from('company_requests').update({ status: nextStatus }).eq('id', id);
   };
 
   return (
     <div className="min-h-screen bg-white text-[#1E2430] flex flex-col font-sans">
-      <input
-        type="file"
-        accept=".xlsx, .xls"
-        ref={replaceFileInputRef}
-        onChange={handleReplaceFileSelected}
-        className="hidden"
-      />
+      <input type="file" accept=".xlsx, .xls" ref={replaceFileInputRef} onChange={handleReplaceFileSelected} className="hidden" />
 
       {/* Header */}
       <header className="border-b border-gray-200 bg-[#273142] text-white px-6 py-4 flex justify-between items-center">
@@ -556,16 +507,12 @@ export default function AdminPage() {
         </div>
       </header>
 
-      {/* Main Container */}
       <main className="max-w-6xl mx-auto px-6 py-8 w-full flex-1 flex flex-col gap-6">
-        {/* Navigation Tabs */}
         <div className="border-b border-gray-200 flex gap-4 overflow-x-auto">
           <button
             onClick={() => setActiveTab('upload')}
             className={`pb-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
-              activeTab === 'upload'
-                ? 'border-[#2F6FED] text-[#2F6FED]'
-                : 'border-transparent text-[#667085] hover:text-[#1E2430]'
+              activeTab === 'upload' ? 'border-[#2F6FED] text-[#2F6FED]' : 'border-transparent text-[#667085] hover:text-[#1E2430]'
             }`}
           >
             📊 Upload Excel Spreads
@@ -573,9 +520,7 @@ export default function AdminPage() {
           <button
             onClick={() => setActiveTab('manage')}
             className={`pb-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
-              activeTab === 'manage'
-                ? 'border-[#2F6FED] text-[#2F6FED]'
-                : 'border-transparent text-[#667085] hover:text-[#1E2430]'
+              activeTab === 'manage' ? 'border-[#2F6FED] text-[#2F6FED]' : 'border-transparent text-[#667085] hover:text-[#1E2430]'
             }`}
           >
             🗂️ Manage Live Datasets ({liveCompanies.length})
@@ -583,9 +528,7 @@ export default function AdminPage() {
           <button
             onClick={() => setActiveTab('subscribers')}
             className={`pb-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
-              activeTab === 'subscribers'
-                ? 'border-[#2F6FED] text-[#2F6FED]'
-                : 'border-transparent text-[#667085] hover:text-[#1E2430]'
+              activeTab === 'subscribers' ? 'border-[#2F6FED] text-[#2F6FED]' : 'border-transparent text-[#667085] hover:text-[#1E2430]'
             }`}
           >
             📬 Subscribers ({subscribers.length})
@@ -593,21 +536,19 @@ export default function AdminPage() {
           <button
             onClick={() => setActiveTab('suggestions')}
             className={`pb-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
-              activeTab === 'suggestions'
-                ? 'border-[#2F6FED] text-[#2F6FED]'
-                : 'border-transparent text-[#667085] hover:text-[#1E2430]'
+              activeTab === 'suggestions' ? 'border-[#2F6FED] text-[#2F6FED]' : 'border-transparent text-[#667085] hover:text-[#1E2430]'
             }`}
           >
             💡 Company Requests ({companyRequests.length})
           </button>
         </div>
 
-        {/* TAB 1: EXCEL UPLOAD */}
+        {/* TAB 1: UPLOAD */}
         {activeTab === 'upload' && (
           <div className="bg-[#F8FAFC] border border-gray-200 p-6 rounded-xl max-w-2xl shadow-sm">
             <h2 className="text-xl font-bold text-[#1E2430] mb-1">Import Multi-Tab Excel Spreads</h2>
             <p className="text-xs text-[#667085] mb-6">
-              Supported Excel tabs: <code className="text-[#0F8B8D]">Company Info</code>, <code className="text-[#0F8B8D]">Directors</code>, <code className="text-[#0F8B8D]">P&L</code>, <code className="text-[#0F8B8D]">BS</code>, <code className="text-[#0F8B8D]">CF</code>, <code className="text-[#0F8B8D]">SOCE</code>, <code className="text-[#0F8B8D]">Ratios</code>, <code className="text-[#0F8B8D]">Shareholding</code>.
+              Supported tabs: <code className="text-[#0F8B8D]">Company Info</code>, <code className="text-[#0F8B8D]">Directors</code>, <code className="text-[#0F8B8D]">P&L</code>, <code className="text-[#0F8B8D]">BS</code>, <code className="text-[#0F8B8D]">CF</code>, <code className="text-[#0F8B8D]">SOCE</code>, <code className="text-[#0F8B8D]">Ratios</code>, <code className="text-[#0F8B8D]">Shareholding</code>.
             </p>
 
             <form onSubmit={handleUploadSubmit} className="space-y-4">
@@ -657,23 +598,16 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* Upload Drop Zone */}
               <div>
                 <label className="text-xs font-semibold text-[#667085] block mb-1">Excel Workbook (.xlsx)</label>
                 <div className="border-2 border-dashed border-gray-300 hover:border-[#0F8B8D] bg-white rounded-lg p-6 text-center transition-colors">
-                  <input
-                    type="file"
-                    accept=".xlsx, .xls"
-                    onChange={handleFileChange}
-                    className="hidden"
-                    id="excel-file-input"
-                  />
+                  <input type="file" accept=".xlsx, .xls" onChange={handleFileChange} className="hidden" id="excel-file-input" />
                   <label htmlFor="excel-file-input" className="cursor-pointer flex flex-col items-center gap-2">
                     <span className="text-3xl">📁</span>
                     <span className="text-xs text-[#1E2430] font-medium">
                       {selectedFile ? selectedFile.name : 'Click to select or drag and drop Excel file'}
                     </span>
-                    <span className="text-[10px] text-[#667085]">Automatically inserts into 8 core tabs</span>
+                    <span className="text-[10px] text-[#667085]">Automatically inserts into Supabase</span>
                   </label>
                 </div>
               </div>
@@ -682,9 +616,7 @@ export default function AdminPage() {
                 type="submit"
                 disabled={!selectedFile || isUploading}
                 className={`w-full py-2.5 rounded-md font-semibold text-xs transition-colors ${
-                  !selectedFile || isUploading
-                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                    : 'bg-[#0F8B8D] hover:bg-[#0c7274] text-white shadow-sm'
+                  !selectedFile || isUploading ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-[#0F8B8D] hover:bg-[#0c7274] text-white shadow-sm'
                 }`}
               >
                 {isUploading ? 'Parsing & Uploading to Supabase...' : 'Upload & Publish to Database'}
@@ -692,31 +624,22 @@ export default function AdminPage() {
             </form>
 
             {uploadStatus && (
-              <div
-                className={`mt-4 p-3 rounded text-xs font-medium border whitespace-pre-wrap ${
-                  uploadStatus.isError
-                    ? 'bg-red-50 text-red-700 border-red-200'
-                    : 'bg-[#0F8B8D]/15 text-[#0F8B8D] border-[#0F8B8D]/30'
-                }`}
-              >
+              <div className={`mt-4 p-3 rounded text-xs font-medium border whitespace-pre-wrap ${uploadStatus.isError ? 'bg-red-50 text-red-700 border-red-200' : 'bg-[#0F8B8D]/15 text-[#0F8B8D] border-[#0F8B8D]/30'}`}>
                 {uploadStatus.message}
               </div>
             )}
           </div>
         )}
 
-        {/* TAB 2: MANAGE LIVE DATASETS */}
+        {/* TAB 2: MANAGE */}
         {activeTab === 'manage' && (
           <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
             <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-[#F8FAFC]">
               <div>
                 <h2 className="text-sm font-bold text-[#1E2430]">Live Companies & Financial Datasets</h2>
-                <p className="text-[11px] text-[#667085]">Companies currently published on the public /data page</p>
+                <p className="text-[11px] text-[#667085]">Companies published on the public /data page</p>
               </div>
-              <button
-                onClick={fetchLiveDatasets}
-                className="text-xs text-[#2F6FED] hover:underline font-semibold"
-              >
+              <button onClick={fetchLiveDatasets} className="text-xs text-[#2F6FED] hover:underline font-semibold">
                 ↻ Refresh List
               </button>
             </div>
@@ -724,9 +647,7 @@ export default function AdminPage() {
             {isLoadingManage ? (
               <div className="p-8 text-center text-xs text-[#667085]">Loading live datasets...</div>
             ) : liveCompanies.length === 0 ? (
-              <div className="p-8 text-center text-xs text-[#667085]">
-                No live datasets found in Supabase. Upload an Excel file in the Upload tab to publish data.
-              </div>
+              <div className="p-8 text-center text-xs text-[#667085]">No live datasets found in Supabase.</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse min-w-[750px]">
