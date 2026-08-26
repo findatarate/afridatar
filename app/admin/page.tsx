@@ -56,8 +56,8 @@ export default function AdminPage() {
 
   // Form input states
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [targetCompany, setTargetCompany] = useState('BancABC');
-  const [targetTicker, setTargetTicker] = useState('BABC.zw');
+  const [targetCompany, setTargetCompany] = useState('CBZ Holdings');
+  const [targetTicker, setTargetTicker] = useState('CBZ.zw');
   const [targetCountry, setTargetCountry] = useState('Zimbabwe');
   const [targetSector, setTargetSector] = useState('Banking & Financial Services');
   
@@ -128,13 +128,19 @@ export default function AdminPage() {
     }
   };
 
-  // Helper: Detect Statement Type from Tab Name
-  const detectStatementType = (sheetName: string): string | null => {
-    const name = sheetName.toLowerCase();
-    if (name.includes('pnl') || name.includes('p&l') || name.includes('income') || name.includes('profit') || name.includes('loss')) return 'pnl';
+  // Helper: Detect Tab Types for all 8 categories
+  const detectSheetType = (sheetName: string): string | null => {
+    const name = sheetName.toLowerCase().replace(/[^a-z0-9&]/g, '');
+
+    if (name.includes('info') || name.includes('overview') || name.includes('profile') || name.includes('company')) return 'info';
+    if (name.includes('director') || name.includes('management') || name.includes('board') || name.includes('executive')) return 'management';
+    if (name.includes('pnl') || name.includes('p&l') || name.includes('income') || name.includes('profit')) return 'pnl';
     if (name.includes('bs') || name.includes('sofp') || name.includes('balance') || name.includes('position')) return 'bs';
     if (name.includes('cf') || name.includes('socf') || name.includes('cash') || name.includes('flow')) return 'cf';
     if (name.includes('soce') || name.includes('equity') || name.includes('change')) return 'soce';
+    if (name.includes('ratio') || name.includes('metrics') || name.includes('kpi')) return 'ratios';
+    if (name.includes('shareholding') || name.includes('shareholder') || name.includes('ownership')) return 'shareholding';
+
     return null;
   };
 
@@ -150,26 +156,31 @@ export default function AdminPage() {
   };
 
   // Helper: Convert Financial Number Formats
-  const parseFinancialNumber = (val: any): number => {
-    if (val === null || val === undefined || val === '') return 0;
-    if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  const parseFinancialNumber = (val: any): { numeric: number; formatted: string } => {
+    if (val === null || val === undefined || val === '') return { numeric: 0, formatted: '-' };
+    const strVal = String(val).trim();
 
-    let str = String(val).trim();
-    if (!str || str === '-' || str === '—' || str === 'N/A') return 0;
-
-    const isParenthesesNegative = /^\((.*)\)$/.test(str);
-    if (isParenthesesNegative) {
-      str = str.replace(/^\((.*)\)$/, '$1');
+    if (typeof val === 'number') {
+      return { numeric: isNaN(val) ? 0 : val, formatted: strVal };
     }
 
-    str = str.replace(/[^0-9.-]/g, '');
-    const num = parseFloat(str);
+    if (!strVal || strVal === '-' || strVal === '—' || strVal === 'N/A') return { numeric: 0, formatted: '-' };
 
-    if (isNaN(num)) return 0;
-    return isParenthesesNegative ? -Math.abs(num) : num;
+    const isParenthesesNegative = /^\((.*)\)$/.test(strVal);
+    let cleanStr = strVal;
+    if (isParenthesesNegative) {
+      cleanStr = cleanStr.replace(/^\((.*)\)$/, '$1');
+    }
+
+    cleanStr = cleanStr.replace(/[^0-9.-]/g, '');
+    const num = parseFloat(cleanStr);
+
+    if (isNaN(num)) return { numeric: 0, formatted: strVal };
+    const numeric = isParenthesesNegative ? -Math.abs(num) : num;
+    return { numeric, formatted: strVal };
   };
 
-  // Parsing Core Function
+  // Parsing & Ingestion Core Function
   const parseAndUploadWorkbook = async (
     file: File,
     companyDetails: { name: string; ticker: string; country: string; sector: string; id?: string }
@@ -206,26 +217,79 @@ export default function AdminPage() {
       }
     }
 
+    // Collections to insert across tables
+    const infoEntries: Array<{ company_id: string; field_label: string; field_value: string }> = [];
+    const mgmtEntries: Array<{ company_id: string; person_name: string; role_title: string; category: string }> = [];
+    const shareholderEntries: Array<{ company_id: string; shareholder_name: string; shares_count: string; percentage: string }> = [];
     const statementEntries: Array<{
       company_id: string;
       statement_type: string;
       line_item: string;
       fiscal_year: string;
       amount: number;
+      amount_text: string;
       is_header: boolean;
       is_total: boolean;
       indent: boolean;
     }> = [];
 
+    const parsedTabs: string[] = [];
+
     for (const sheetName of workbook.SheetNames) {
-      const statementType = detectStatementType(sheetName);
-      if (!statementType) continue;
+      const tabType = detectSheetType(sheetName);
+      if (!tabType) continue;
 
       const worksheet = workbook.Sheets[sheetName];
       const jsonRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
       if (jsonRows.length < 1) continue;
 
+      parsedTabs.push(`${sheetName} ➔ [${tabType.toUpperCase()}]`);
+
+      // 1. Company Info Parser (Key/Value pairs)
+      if (tabType === 'info') {
+        for (const row of jsonRows) {
+          if (!row || row.length < 2) continue;
+          const label = String(row[0] || '').trim();
+          const val = String(row[1] || '').trim();
+          if (label && val) {
+            infoEntries.push({ company_id: companyId, field_label: label, field_value: val });
+          }
+        }
+        continue;
+      }
+
+      // 2. Directors & Management Parser
+      if (tabType === 'management') {
+        for (let r = 1; r < jsonRows.length; r++) {
+          const row = jsonRows[r];
+          if (!row || !row[0]) continue;
+          const person = String(row[0] || '').trim();
+          const role = String(row[1] || '').trim();
+          const cat = String(row[2] || 'Board / Executive').trim();
+          if (person) {
+            mgmtEntries.push({ company_id: companyId, person_name: person, role_title: role || 'Director', category: cat });
+          }
+        }
+        continue;
+      }
+
+      // 3. Shareholding Parser
+      if (tabType === 'shareholding') {
+        for (let r = 1; r < jsonRows.length; r++) {
+          const row = jsonRows[r];
+          if (!row || !row[0]) continue;
+          const name = String(row[0] || '').trim();
+          const shares = String(row[1] || '-').trim();
+          const pct = String(row[2] || '-').trim();
+          if (name) {
+            shareholderEntries.push({ company_id: companyId, shareholder_name: name, shares_count: shares, percentage: pct });
+          }
+        }
+        continue;
+      }
+
+      // 4. Multi-Year Financial Statements & Ratios Parser (pnl, bs, cf, soce, ratios)
       let headerRowIndex = -1;
       let yearColumns: Array<{ year: string; colIndex: number }> = [];
 
@@ -248,7 +312,6 @@ export default function AdminPage() {
       }
 
       if (yearColumns.length === 0) continue;
-
       const firstYearColIndex = Math.min(...yearColumns.map((y) => y.colIndex));
 
       for (let r = headerRowIndex + 1; r < jsonRows.length; r++) {
@@ -263,16 +326,6 @@ export default function AdminPage() {
           }
         }
 
-        if (!rawLabel) {
-          for (let c = 0; c < firstYearColIndex; c++) {
-            const cellText = String(row[c] || '').trim();
-            if (cellText) {
-              rawLabel = cellText;
-              break;
-            }
-          }
-        }
-
         if (!rawLabel) continue;
 
         const isHeader = rawLabel.toUpperCase() === rawLabel && !row.some((val: any, i: number) => i >= firstYearColIndex && val !== '' && val !== null);
@@ -281,14 +334,15 @@ export default function AdminPage() {
 
         yearColumns.forEach(({ year, colIndex }) => {
           const rawVal = row[colIndex];
-          const numericVal = parseFinancialNumber(rawVal);
+          const parsed = parseFinancialNumber(rawVal);
 
           statementEntries.push({
             company_id: companyId,
-            statement_type: statementType,
+            statement_type: tabType,
             line_item: rawLabel,
             fiscal_year: year,
-            amount: numericVal,
+            amount: parsed.numeric,
+            amount_text: parsed.formatted,
             is_header: isHeader,
             is_total: isTotal,
             indent,
@@ -297,17 +351,24 @@ export default function AdminPage() {
       }
     }
 
-    if (statementEntries.length === 0) {
-      throw new Error(`Could not extract line items from "${file.name}". Ensure financial sheets and year headers are present.`);
-    }
-
+    // Clear old records for clean update
+    await supabase.from('company_info_items').delete().eq('company_id', companyId);
+    await supabase.from('directors_management').delete().eq('company_id', companyId);
+    await supabase.from('shareholders').delete().eq('company_id', companyId);
     await supabase.from('financial_statements').delete().eq('company_id', companyId);
 
-    const { error: insertErr } = await supabase.from('financial_statements').insert(statementEntries);
+    // Insert new records into respective tables
+    if (infoEntries.length > 0) await supabase.from('company_info_items').insert(infoEntries);
+    if (mgmtEntries.length > 0) await supabase.from('directors_management').insert(mgmtEntries);
+    if (shareholderEntries.length > 0) await supabase.from('shareholders').insert(shareholderEntries);
+    if (statementEntries.length > 0) await supabase.from('financial_statements').insert(statementEntries);
 
-    if (insertErr) throw new Error(`Database upload failed: ${insertErr.message}`);
+    const totalUploaded = infoEntries.length + mgmtEntries.length + shareholderEntries.length + statementEntries.length;
+    if (totalUploaded === 0) {
+      throw new Error(`Could not extract data from "${file.name}". Ensure tabs match Info, Directors, P&L, BS, CF, SOCE, Ratios, or Shareholding.`);
+    }
 
-    return { companyId, lineCount: statementEntries.length };
+    return { companyId, totalUploaded, parsedTabs };
   };
 
   // Form Upload Handler
@@ -327,7 +388,7 @@ export default function AdminPage() {
       });
 
       setUploadStatus({
-        message: `Successfully uploaded ${selectedFile.name} for ${targetCompany}! Uploaded ${res.lineCount} lines to Supabase.`,
+        message: `Successfully uploaded ${selectedFile.name} for ${targetCompany}! Uploaded ${res.totalUploaded} records across detected tabs.`,
       });
       setSelectedFile(null);
       fetchLiveDatasets();
@@ -365,7 +426,7 @@ export default function AdminPage() {
         sector: replaceTargetCompany.sector,
       });
 
-      alert(`Successfully replaced dataset for ${replaceTargetCompany.name}! Updated with ${res.lineCount} financial rows.`);
+      alert(`Successfully replaced dataset for ${replaceTargetCompany.name}! Updated with ${res.totalUploaded} records.`);
       fetchLiveDatasets();
     } catch (err: any) {
       alert(`Replace failed: ${err.message}`);
@@ -380,48 +441,44 @@ export default function AdminPage() {
     setIsDownloadingId(company.id);
 
     try {
-      const { data: statements, error } = await supabase
-        .from('financial_statements')
-        .select('*')
-        .eq('company_id', company.id);
-
-      if (error || !statements || statements.length === 0) {
-        throw new Error('No financial statements found for this company.');
-      }
-
       const workbook = XLSX.utils.book_new();
-      const tabNames: Record<string, string> = {
-        pnl: 'P&L',
-        bs: 'Balance Sheet',
-        cf: 'Cash Flow',
-        soce: 'SOCE',
-      };
 
-      Object.keys(tabNames).forEach((stmtType) => {
-        const stmtRows = statements.filter((s) => s.statement_type.toLowerCase() === stmtType);
-        if (stmtRows.length === 0) return;
+      // Fetch financial statements & ratios
+      const { data: statements } = await supabase.from('financial_statements').select('*').eq('company_id', company.id);
 
-        const years = Array.from(new Set(stmtRows.map((s) => s.fiscal_year))).sort();
+      if (statements && statements.length > 0) {
+        const tabNames: Record<string, string> = {
+          pnl: 'P&L',
+          bs: 'Balance Sheet',
+          cf: 'Cash Flow',
+          soce: 'SOCE',
+          ratios: 'Ratios',
+        };
 
-        const lineItemMap = new Map<string, Record<string, number>>();
-        stmtRows.forEach((s) => {
-          if (!lineItemMap.has(s.line_item)) {
-            lineItemMap.set(s.line_item, {});
-          }
-          lineItemMap.get(s.line_item)![s.fiscal_year] = s.amount;
+        Object.keys(tabNames).forEach((stmtType) => {
+          const stmtRows = statements.filter((s) => s.statement_type.toLowerCase() === stmtType);
+          if (stmtRows.length === 0) return;
+
+          const years = Array.from(new Set(stmtRows.map((s) => s.fiscal_year))).sort();
+
+          const lineItemMap = new Map<string, Record<string, string>>();
+          stmtRows.forEach((s) => {
+            if (!lineItemMap.has(s.line_item)) lineItemMap.set(s.line_item, {});
+            lineItemMap.get(s.line_item)![s.fiscal_year] = s.amount_text || String(s.amount);
+          });
+
+          const sheetData: any[][] = [];
+          sheetData.push(['Line Item', ...years.map((y) => `FY ${y}`)]);
+
+          lineItemMap.forEach((yearVals, label) => {
+            const row = [label, ...years.map((y) => yearVals[y] ?? '')];
+            sheetData.push(row);
+          });
+
+          const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+          XLSX.utils.book_append_sheet(workbook, worksheet, tabNames[stmtType]);
         });
-
-        const sheetData: any[][] = [];
-        sheetData.push(['Line Item', ...years.map((y) => `FY ${y}`)]);
-
-        lineItemMap.forEach((yearVals, label) => {
-          const row = [label, ...years.map((y) => yearVals[y] ?? '')];
-          sheetData.push(row);
-        });
-
-        const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
-        XLSX.utils.book_append_sheet(workbook, worksheet, tabNames[stmtType]);
-      });
+      }
 
       const safeName = company.name.replace(/[^a-zA-Z0-9]/g, '_');
       XLSX.writeFile(workbook, `${safeName}_Financial_Spreads.xlsx`);
@@ -434,13 +491,16 @@ export default function AdminPage() {
 
   // Delete Dataset Handler
   const handleDeleteCompany = async (companyId: string, companyName: string) => {
-    if (!window.confirm(`Are you sure you want to delete ${companyName} and all its financial statements from Supabase?`)) {
+    if (!window.confirm(`Are you sure you want to delete ${companyName} and all its data from Supabase?`)) {
       return;
     }
 
     setIsDeletingId(companyId);
 
     try {
+      await supabase.from('company_info_items').delete().eq('company_id', companyId);
+      await supabase.from('directors_management').delete().eq('company_id', companyId);
+      await supabase.from('shareholders').delete().eq('company_id', companyId);
       await supabase.from('financial_statements').delete().eq('company_id', companyId);
       const { error } = await supabase.from('companies').delete().eq('id', companyId);
 
@@ -454,7 +514,7 @@ export default function AdminPage() {
     }
   };
 
-  // Toggle Company Request Status in Supabase
+  // Toggle Company Request Status
   const toggleRequestStatus = async (id: string, currentStatus: CompanyRequest['status']) => {
     const nextStatus: CompanyRequest['status'] =
       currentStatus === 'Pending' ? 'In Progress' : currentStatus === 'In Progress' ? 'Completed' : 'Pending';
@@ -545,9 +605,9 @@ export default function AdminPage() {
         {/* TAB 1: EXCEL UPLOAD */}
         {activeTab === 'upload' && (
           <div className="bg-[#F8FAFC] border border-gray-200 p-6 rounded-xl max-w-2xl shadow-sm">
-            <h2 className="text-xl font-bold text-[#1E2430] mb-1">Import Excel Spreads to Supabase</h2>
+            <h2 className="text-xl font-bold text-[#1E2430] mb-1">Import Multi-Tab Excel Spreads</h2>
             <p className="text-xs text-[#667085] mb-6">
-              Upload an Excel workbook containing financial tabs (<code className="text-[#0F8B8D]">P&L / IS</code>, <code className="text-[#0F8B8D]">BS / SOFP</code>, <code className="text-[#0F8B8D]">CF / SOCF</code>, <code className="text-[#0F8B8D]">SOCE</code>).
+              Supported Excel tabs: <code className="text-[#0F8B8D]">Company Info</code>, <code className="text-[#0F8B8D]">Directors</code>, <code className="text-[#0F8B8D]">P&L</code>, <code className="text-[#0F8B8D]">BS</code>, <code className="text-[#0F8B8D]">CF</code>, <code className="text-[#0F8B8D]">SOCE</code>, <code className="text-[#0F8B8D]">Ratios</code>, <code className="text-[#0F8B8D]">Shareholding</code>.
             </p>
 
             <form onSubmit={handleUploadSubmit} className="space-y-4">
@@ -613,7 +673,7 @@ export default function AdminPage() {
                     <span className="text-xs text-[#1E2430] font-medium">
                       {selectedFile ? selectedFile.name : 'Click to select or drag and drop Excel file'}
                     </span>
-                    <span className="text-[10px] text-[#667085]">Automatically inserts into Supabase tables</span>
+                    <span className="text-[10px] text-[#667085]">Automatically inserts into 8 core tabs</span>
                   </label>
                 </div>
               </div>
@@ -675,14 +735,12 @@ export default function AdminPage() {
                       <th className="p-3">Company</th>
                       <th className="p-3">Country / Sector</th>
                       <th className="p-3">Status</th>
-                      <th className="p-3">Line Items</th>
                       <th className="p-3">Last Updated</th>
                       <th className="p-3 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 text-xs">
                     {liveCompanies.map((comp) => {
-                      const lineItemCount = comp.financial_statements?.[0]?.count || 0;
                       const formattedDate = new Date(comp.created_at).toLocaleDateString('en-US', {
                         year: 'numeric',
                         month: 'short',
@@ -706,12 +764,7 @@ export default function AdminPage() {
                               ● LIVE
                             </span>
                           </td>
-                          <td className="p-3 font-mono text-[#1E2430]">
-                            {lineItemCount} rows
-                          </td>
-                          <td className="p-3 text-[#667085]">
-                            {formattedDate}
-                          </td>
+                          <td className="p-3 text-[#667085]">{formattedDate}</td>
                           <td className="p-3 text-right">
                             <div className="flex items-center justify-end gap-2">
                               <button
@@ -755,10 +808,7 @@ export default function AdminPage() {
                 <h2 className="text-sm font-bold text-[#1E2430]">Email Notification Subscribers</h2>
                 <p className="text-[11px] text-[#667085]">Live subscriptions submitted via homepage</p>
               </div>
-              <button
-                onClick={fetchSubscribers}
-                className="text-xs text-[#2F6FED] hover:underline font-semibold"
-              >
+              <button onClick={fetchSubscribers} className="text-xs text-[#2F6FED] hover:underline font-semibold">
                 ↻ Refresh List
               </button>
             </div>
@@ -806,10 +856,7 @@ export default function AdminPage() {
                 <h2 className="text-sm font-bold text-[#1E2430]">User-Suggested Companies</h2>
                 <p className="text-[11px] text-[#667085]">Requests submitted via homepage</p>
               </div>
-              <button
-                onClick={fetchCompanyRequests}
-                className="text-xs text-[#2F6FED] hover:underline font-semibold"
-              >
+              <button onClick={fetchCompanyRequests} className="text-xs text-[#2F6FED] hover:underline font-semibold">
                 ↻ Refresh List
               </button>
             </div>
