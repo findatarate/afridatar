@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 
-// 8 Tab Types in the requested order
 type DataTab = 'info' | 'management' | 'pnl' | 'bs' | 'cf' | 'soce' | 'ratios' | 'shareholding';
 
 interface Company {
@@ -71,13 +70,11 @@ export default function DataPage() {
   const [isLoadingCompanies, setIsLoadingCompanies] = useState(true);
   const [isLoadingData, setIsLoadingData] = useState(false);
 
-  // Tab Dataset States
   const [infoItems, setInfoItems] = useState<InfoItem[]>([]);
   const [managementList, setManagementList] = useState<ManagementPerson[]>([]);
   const [shareholders, setShareholders] = useState<Shareholder[]>([]);
   const [financialRows, setFinancialRows] = useState<DbFinancialRow[]>([]);
 
-  // 1. Fetch Companies list on Mount
   useEffect(() => {
     async function fetchCompanies() {
       setIsLoadingCompanies(true);
@@ -100,7 +97,6 @@ export default function DataPage() {
     fetchCompanies();
   }, []);
 
-  // 2. Fetch all tab datasets when selected company changes
   useEffect(() => {
     if (!selectedCompany) return;
 
@@ -125,7 +121,6 @@ export default function DataPage() {
     fetchCompanyData();
   }, [selectedCompany]);
 
-  // Group directory folders
   const countryFolders: CountryFolder[] = companies.reduce((acc: CountryFolder[], comp) => {
     let folder = acc.find((f) => f.country.toLowerCase() === comp.country.toLowerCase());
     if (!folder) {
@@ -148,7 +143,6 @@ export default function DataPage() {
     })
     .filter((folder) => folder.companies.length > 0);
 
-  // Filter financial statement rows for current active tab (pnl, bs, cf, soce, ratios)
   const isStatementTab = ['pnl', 'bs', 'cf', 'soce', 'ratios'].includes(activeTab);
   const currentTabStatements = financialRows.filter(
     (s) => s.statement_type.toLowerCase() === activeTab.toLowerCase()
@@ -169,14 +163,21 @@ export default function DataPage() {
       });
     }
     const item = lineItemMap.get(key)!;
-    item.values[row.fiscal_year] = row.amount_text || (row.amount !== null ? row.amount.toLocaleString() : '-');
+
+    let displayVal = '-';
+    if (row.amount_text && row.amount_text.trim() !== '') {
+      displayVal = row.amount_text;
+    } else if (row.amount !== null && row.amount !== undefined) {
+      displayVal = row.amount !== 0 ? row.amount.toLocaleString() : '-';
+    }
+
+    item.values[row.fiscal_year] = displayVal;
   });
 
   const displayRows = Array.from(lineItemMap.values());
 
   return (
     <div className="min-h-screen bg-white text-[#1E2430] flex flex-col font-sans">
-      {/* Dark Header Anchor */}
       <header className="border-b border-gray-200 bg-[#273142] text-white px-6 py-4 flex justify-between items-center">
         <div className="flex items-center gap-4">
           <Link href="/" className="text-2xl font-bold text-white tracking-tight">
@@ -191,9 +192,7 @@ export default function DataPage() {
         </Link>
       </header>
 
-      {/* Main Container */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-        {/* Sidebar Directory */}
         <aside className="w-full md:w-72 bg-[#F8FAFC] border-r border-gray-200 p-4 flex flex-col gap-4">
           <div>
             <label className="text-xs font-semibold text-[#667085] uppercase tracking-wider block mb-1">
@@ -252,7 +251,6 @@ export default function DataPage() {
           </div>
         </aside>
 
-        {/* Financial Viewer Area */}
         <main className="flex-1 p-6 overflow-x-auto flex flex-col gap-6 bg-white">
           {!selectedCompany ? (
             <div className="bg-[#F8FAFC] border border-gray-200 p-12 text-center rounded-lg">
@@ -260,7 +258,6 @@ export default function DataPage() {
             </div>
           ) : (
             <>
-              {/* Company Header Card */}
               <div className="bg-[#F8FAFC] border border-gray-200 p-5 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                   <div className="flex items-center gap-3 mb-1">
@@ -279,7 +276,7 @@ export default function DataPage() {
                 </div>
               </div>
 
-              {/* 8 Tab Navigation Switcher (In Specified Order) */}
+              {/* 8 Tab Navigation Switcher */}
               <div className="border-b border-gray-200 flex gap-2 overflow-x-auto pb-1">
                 <button
                   onClick={() => setActiveTab('info')}
@@ -363,7 +360,6 @@ export default function DataPage() {
                 </button>
               </div>
 
-              {/* Content Panel Rendering */}
               {isLoadingData ? (
                 <div className="p-8 text-center text-xs text-[#667085]">Loading dataset...</div>
               ) : (
@@ -424,7 +420,7 @@ export default function DataPage() {
                     </div>
                   )}
 
-                  {/* TAB 3-7: Multi-Year Financial Statements & Ratios */}
+                  {/* TAB 3-7: Financials & Ratios */}
                   {isStatementTab && (
                     <>
                       {displayRows.length === 0 ? (
