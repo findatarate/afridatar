@@ -165,7 +165,7 @@ export default function DataPage() {
     const item = lineItemMap.get(key)!;
 
     let displayVal = '-';
-    if (row.amount_text && row.amount_text.trim() !== '') {
+    if (row.amount_text !== null && row.amount_text !== undefined && row.amount_text.trim() !== '') {
       displayVal = row.amount_text;
     } else if (row.amount !== null && row.amount !== undefined) {
       displayVal = row.amount !== 0 ? row.amount.toLocaleString() : '-';
@@ -176,8 +176,20 @@ export default function DataPage() {
 
   const displayRows = Array.from(lineItemMap.values());
 
+  const tabList: { id: DataTab; label: string; icon: string }[] = [
+    { id: 'info', label: 'Company Information', icon: '🏢' },
+    { id: 'management', label: 'Directors & Key Management', icon: '👥' },
+    { id: 'pnl', label: 'Income Statement', icon: '📈' },
+    { id: 'bs', label: 'Balance Sheet', icon: '⚖️' },
+    { id: 'cf', label: 'Cashflow Statement', icon: '💵' },
+    { id: 'soce', label: 'Statement of Changes in Equity', icon: '📊' },
+    { id: 'ratios', label: 'Ratios', icon: '📐' },
+    { id: 'shareholding', label: 'Reported Shareholding', icon: '🤝' },
+  ];
+
   return (
     <div className="min-h-screen bg-white text-[#1E2430] flex flex-col font-sans">
+      {/* Header */}
       <header className="border-b border-gray-200 bg-[#273142] text-white px-6 py-4 flex justify-between items-center">
         <div className="flex items-center gap-4">
           <Link href="/" className="text-2xl font-bold text-white tracking-tight">
@@ -193,6 +205,7 @@ export default function DataPage() {
       </header>
 
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+        {/* Sidebar Directory */}
         <aside className="w-full md:w-72 bg-[#F8FAFC] border-r border-gray-200 p-4 flex flex-col gap-4">
           <div>
             <label className="text-xs font-semibold text-[#667085] uppercase tracking-wider block mb-1">
@@ -251,13 +264,15 @@ export default function DataPage() {
           </div>
         </aside>
 
-        <main className="flex-1 p-6 overflow-x-auto flex flex-col gap-6 bg-white">
+        {/* Main Content Area */}
+        <main className="flex-1 p-6 overflow-y-auto flex flex-col gap-6 bg-white relative">
           {!selectedCompany ? (
             <div className="bg-[#F8FAFC] border border-gray-200 p-12 text-center rounded-lg">
               <p className="text-[#667085] text-sm">No company selected.</p>
             </div>
           ) : (
             <>
+              {/* Company Header Info Card */}
               <div className="bg-[#F8FAFC] border border-gray-200 p-5 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                   <div className="flex items-center gap-3 mb-1">
@@ -267,7 +282,10 @@ export default function DataPage() {
                     </span>
                   </div>
                   <p className="text-xs text-[#667085]">
-                    {selectedCompany.country} • {selectedCompany.sector} • Reporting Currency: <span className="text-[#1E2430] font-medium">{selectedCompany.currency || 'USD / ZWG'}</span>
+                    {selectedCompany.country} • {selectedCompany.sector} • Currency:{' '}
+                    <span className="text-[#1E2430] font-medium">
+                      {selectedCompany.currency || 'Original Source Currency'}
+                    </span>
                   </p>
                 </div>
 
@@ -276,90 +294,28 @@ export default function DataPage() {
                 </div>
               </div>
 
-              {/* 8 Tab Navigation Switcher */}
-              <div className="border-b border-gray-200 flex gap-2 overflow-x-auto pb-1">
-                <button
-                  onClick={() => setActiveTab('info')}
-                  className={`px-3.5 py-2 text-xs font-semibold rounded-t-md transition-colors whitespace-nowrap ${
-                    activeTab === 'info'
-                      ? 'bg-white text-[#2F6FED] border-t-2 border-[#2F6FED] border-x border-gray-200 shadow-sm'
-                      : 'text-[#667085] hover:text-[#1E2430] bg-[#F1F5F9]'
-                  }`}
-                >
-                  🏢 Company Information
-                </button>
-                <button
-                  onClick={() => setActiveTab('management')}
-                  className={`px-3.5 py-2 text-xs font-semibold rounded-t-md transition-colors whitespace-nowrap ${
-                    activeTab === 'management'
-                      ? 'bg-white text-[#2F6FED] border-t-2 border-[#2F6FED] border-x border-gray-200 shadow-sm'
-                      : 'text-[#667085] hover:text-[#1E2430] bg-[#F1F5F9]'
-                  }`}
-                >
-                  👥 Directors & Key Management
-                </button>
-                <button
-                  onClick={() => setActiveTab('pnl')}
-                  className={`px-3.5 py-2 text-xs font-semibold rounded-t-md transition-colors whitespace-nowrap ${
-                    activeTab === 'pnl'
-                      ? 'bg-white text-[#2F6FED] border-t-2 border-[#2F6FED] border-x border-gray-200 shadow-sm'
-                      : 'text-[#667085] hover:text-[#1E2430] bg-[#F1F5F9]'
-                  }`}
-                >
-                  📈 Income Statement
-                </button>
-                <button
-                  onClick={() => setActiveTab('bs')}
-                  className={`px-3.5 py-2 text-xs font-semibold rounded-t-md transition-colors whitespace-nowrap ${
-                    activeTab === 'bs'
-                      ? 'bg-white text-[#2F6FED] border-t-2 border-[#2F6FED] border-x border-gray-200 shadow-sm'
-                      : 'text-[#667085] hover:text-[#1E2430] bg-[#F1F5F9]'
-                  }`}
-                >
-                  ⚖️ Balance Sheet
-                </button>
-                <button
-                  onClick={() => setActiveTab('cf')}
-                  className={`px-3.5 py-2 text-xs font-semibold rounded-t-md transition-colors whitespace-nowrap ${
-                    activeTab === 'cf'
-                      ? 'bg-white text-[#2F6FED] border-t-2 border-[#2F6FED] border-x border-gray-200 shadow-sm'
-                      : 'text-[#667085] hover:text-[#1E2430] bg-[#F1F5F9]'
-                  }`}
-                >
-                  💵 Cashflow Statement
-                </button>
-                <button
-                  onClick={() => setActiveTab('soce')}
-                  className={`px-3.5 py-2 text-xs font-semibold rounded-t-md transition-colors whitespace-nowrap ${
-                    activeTab === 'soce'
-                      ? 'bg-white text-[#2F6FED] border-t-2 border-[#2F6FED] border-x border-gray-200 shadow-sm'
-                      : 'text-[#667085] hover:text-[#1E2430] bg-[#F1F5F9]'
-                  }`}
-                >
-                  📊 Statement of Changes in Equity
-                </button>
-                <button
-                  onClick={() => setActiveTab('ratios')}
-                  className={`px-3.5 py-2 text-xs font-semibold rounded-t-md transition-colors whitespace-nowrap ${
-                    activeTab === 'ratios'
-                      ? 'bg-white text-[#2F6FED] border-t-2 border-[#2F6FED] border-x border-gray-200 shadow-sm'
-                      : 'text-[#667085] hover:text-[#1E2430] bg-[#F1F5F9]'
-                  }`}
-                >
-                  📐 Ratios
-                </button>
-                <button
-                  onClick={() => setActiveTab('shareholding')}
-                  className={`px-3.5 py-2 text-xs font-semibold rounded-t-md transition-colors whitespace-nowrap ${
-                    activeTab === 'shareholding'
-                      ? 'bg-white text-[#2F6FED] border-t-2 border-[#2F6FED] border-x border-gray-200 shadow-sm'
-                      : 'text-[#667085] hover:text-[#1E2430] bg-[#F1F5F9]'
-                  }`}
-                >
-                  🤝 Reported Shareholding
-                </button>
+              {/* FIX 1: Frozen/Sticky Navigation Tabs Header */}
+              <div className="sticky top-0 z-20 bg-white py-2 border-b border-gray-200 flex gap-2 overflow-x-auto shadow-sm">
+                {tabList.map((tab) => {
+                  const isActive = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`px-3.5 py-2 text-xs font-bold rounded-md transition-all whitespace-nowrap flex items-center gap-1.5 ${
+                        isActive
+                          ? 'bg-[#2F6FED] text-white shadow-md'
+                          : 'bg-[#F1F5F9] text-[#667085] hover:text-[#1E2430] hover:bg-gray-200'
+                      }`}
+                    >
+                      <span>{tab.icon}</span>
+                      <span>{tab.label}</span>
+                    </button>
+                  );
+                })}
               </div>
 
+              {/* Tab Content Display */}
               {isLoadingData ? (
                 <div className="p-8 text-center text-xs text-[#667085]">Loading dataset...</div>
               ) : (
@@ -377,7 +333,7 @@ export default function DataPage() {
                           {infoItems.map((item) => (
                             <div key={item.id} className="grid grid-cols-3 p-3 hover:bg-gray-50">
                               <span className="font-semibold text-[#667085]">{item.field_label}</span>
-                              <span className="col-span-2 text-[#1E2430]">{item.field_value}</span>
+                              <span className="col-span-2 text-[#1E2430] font-medium">{item.field_value}</span>
                             </div>
                           ))}
                         </div>
@@ -420,7 +376,7 @@ export default function DataPage() {
                     </div>
                   )}
 
-                  {/* TAB 3-7: Financials & Ratios */}
+                  {/* TAB 3-7: Financial Statements & Ratios */}
                   {isStatementTab && (
                     <>
                       {displayRows.length === 0 ? (
@@ -431,14 +387,15 @@ export default function DataPage() {
                         </div>
                       ) : (
                         <div className="bg-white border border-gray-200 rounded-lg overflow-x-auto shadow-sm">
-                          <table className="w-full text-left border-collapse min-w-[700px]">
+                          <table className="w-full text-left border-collapse table-fixed">
                             <thead>
                               <tr className="border-b border-gray-200 bg-[#F8FAFC] text-xs font-bold text-[#273142]">
-                                <th className="p-3 sticky left-0 bg-[#F8FAFC] min-w-[280px] border-r border-gray-200">
+                                {/* FIX 3: Column Width set to ~4cm (151px) with Text Wrapping */}
+                                <th className="p-3 w-[151px] min-w-[151px] max-w-[151px] border-r border-gray-200 sticky left-0 bg-[#F8FAFC] z-10 whitespace-normal break-words">
                                   Line Item / Metric
                                 </th>
                                 {uniqueYears.map((year) => (
-                                  <th key={year} className="p-3 text-right min-w-[100px]">
+                                  <th key={year} className="p-3 text-right w-[120px] min-w-[120px]">
                                     FY {year}
                                   </th>
                                 ))}
@@ -446,10 +403,11 @@ export default function DataPage() {
                             </thead>
                             <tbody className="divide-y divide-gray-200 text-xs font-mono">
                               {displayRows.map((row, idx) => {
+                                // FIX 4: Header Section Formatting
                                 if (row.isHeader) {
                                   return (
                                     <tr key={idx} className="bg-[#F1F5F9] text-[#1E2430] font-bold">
-                                      <td className="p-3 sticky left-0 bg-[#F1F5F9] border-r border-gray-200 font-sans">
+                                      <td className="p-3 w-[151px] min-w-[151px] max-w-[151px] border-r border-gray-200 sticky left-0 bg-[#F1F5F9] z-10 font-sans whitespace-normal break-words uppercase tracking-wide">
                                         {row.label}
                                       </td>
                                       {uniqueYears.map((yr) => (
@@ -461,10 +419,11 @@ export default function DataPage() {
                                   );
                                 }
 
+                                // FIX 4: Total & Subtotal Rows Formatting
                                 if (row.isTotal) {
                                   return (
-                                    <tr key={idx} className="bg-[#0F8B8D]/10 text-[#1E2430] font-bold border-t border-b border-[#0F8B8D]/30">
-                                      <td className="p-3 sticky left-0 bg-[#F8FAFC] border-r border-gray-200 font-sans">
+                                    <tr key={idx} className="bg-[#0F8B8D]/10 text-[#1E2430] font-bold border-t border-b-2 border-[#1E2430]">
+                                      <td className="p-3 w-[151px] min-w-[151px] max-w-[151px] border-r border-gray-200 sticky left-0 bg-[#F8FAFC] z-10 font-sans whitespace-normal break-words">
                                         {row.label}
                                       </td>
                                       {uniqueYears.map((yr) => (
@@ -476,9 +435,14 @@ export default function DataPage() {
                                   );
                                 }
 
+                                // FIX 3 & 4: Standard Line Item with Auto-wrapping and Indentation
                                 return (
                                   <tr key={idx} className="hover:bg-gray-50 text-[#273142]">
-                                    <td className={`p-2.5 sticky left-0 bg-white border-r border-gray-200 font-sans ${row.indent ? 'pl-7 text-[#667085]' : ''}`}>
+                                    <td
+                                      className={`p-2.5 w-[151px] min-w-[151px] max-w-[151px] border-r border-gray-200 sticky left-0 bg-white z-10 font-sans whitespace-normal break-words leading-snug ${
+                                        row.indent ? 'pl-6 text-[#667085]' : ''
+                                      }`}
+                                    >
                                       {row.label}
                                     </td>
                                     {uniqueYears.map((yr) => (
