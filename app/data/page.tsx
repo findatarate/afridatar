@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 
-type DataTab = 'info' | 'management' | 'pnl' | 'bs' | 'cf' | 'soce' | 'ratios' | 'shareholding';
+type DataTab = 'overview' | 'management' | 'pnl' | 'bs' | 'cf' | 'soce' | 'ratios' | 'shareholding';
 
 interface Company {
   id: string;
@@ -20,24 +20,42 @@ interface CountryFolder {
   companies: Company[];
 }
 
-interface InfoItem {
+interface OverviewSection {
   id: string;
+  section_type: string;
   field_label: string;
   field_value: string;
+}
+
+interface Subsidiary {
+  id: string;
+  subsidiary_name: string;
+  shareholding_pct: string;
+  purpose: string;
+}
+
+interface CreditRating {
+  id: string;
+  entity_name: string;
+  rating: string;
+}
+
+interface Shareholder {
+  id: string;
+  shareholder_name: string;
+  percentage: string;
+  reporting_date: string;
 }
 
 interface ManagementPerson {
   id: string;
   person_name: string;
   role_title: string;
+  board_committees: string;
+  appointed_date: string;
+  profile: string;
+  other_directorships: string;
   category: string;
-}
-
-interface Shareholder {
-  id: string;
-  shareholder_name: string;
-  shares_count: string;
-  percentage: string;
 }
 
 interface DbFinancialRow {
@@ -63,16 +81,19 @@ interface DisplayRow {
 export default function DataPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
-  const [activeTab, setActiveTab] = useState<DataTab>('info');
+  const [activeTab, setActiveTab] = useState<DataTab>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [openCountry, setOpenCountry] = useState<string>('');
   
   const [isLoadingCompanies, setIsLoadingCompanies] = useState(true);
   const [isLoadingData, setIsLoadingData] = useState(false);
 
-  const [infoItems, setInfoItems] = useState<InfoItem[]>([]);
-  const [managementList, setManagementList] = useState<ManagementPerson[]>([]);
+  // Tab Dataset States
+  const [overviewSections, setOverviewSections] = useState<OverviewSection[]>([]);
+  const [subsidiaries, setSubsidiaries] = useState<Subsidiary[]>([]);
+  const [creditRatings, setCreditRatings] = useState<CreditRating[]>([]);
   const [shareholders, setShareholders] = useState<Shareholder[]>([]);
+  const [managementList, setManagementList] = useState<ManagementPerson[]>([]);
   const [financialRows, setFinancialRows] = useState<DbFinancialRow[]>([]);
 
   useEffect(() => {
@@ -103,16 +124,20 @@ export default function DataPage() {
     async function fetchCompanyData() {
       setIsLoadingData(true);
 
-      const [infoRes, mgmtRes, shareRes, stmtRes] = await Promise.all([
-        supabase.from('company_info_items').select('*').eq('company_id', selectedCompany.id),
-        supabase.from('directors_management').select('*').eq('company_id', selectedCompany.id),
+      const [ovRes, subRes, ratRes, shRes, mgmtRes, stmtRes] = await Promise.all([
+        supabase.from('company_overview_sections').select('*').eq('company_id', selectedCompany.id),
+        supabase.from('subsidiaries').select('*').eq('company_id', selectedCompany.id),
+        supabase.from('credit_ratings').select('*').eq('company_id', selectedCompany.id),
         supabase.from('shareholders').select('*').eq('company_id', selectedCompany.id),
+        supabase.from('directors_management').select('*').eq('company_id', selectedCompany.id),
         supabase.from('financial_statements').select('*').eq('company_id', selectedCompany.id),
       ]);
 
-      setInfoItems(infoRes.data || []);
+      setOverviewSections(ovRes.data || []);
+      setSubsidiaries(subRes.data || []);
+      setCreditRatings(ratRes.data || []);
+      setShareholders(shRes.data || []);
       setManagementList(mgmtRes.data || []);
-      setShareholders(shareRes.data || []);
       setFinancialRows(stmtRes.data || []);
 
       setIsLoadingData(false);
@@ -145,10 +170,14 @@ export default function DataPage() {
 
   const isStatementTab = ['pnl', 'bs', 'cf', 'soce', 'ratios'].includes(activeTab);
   const currentTabStatements = financialRows.filter(
-    (s) => s.statement_type.toLowerCase() === activeTab.toLowerCase()
+    (s) => s.statement_type.toLowerCase() === activeTab.toLowerCase() && s.line_item !== 'FOOTNOTE'
   );
 
-  const uniqueYears = Array.from(new Set(currentTabStatements.map((s) => s.fiscal_year))).sort();
+  const footnoteRow = financialRows.find(
+    (s) => s.statement_type.toLowerCase() === activeTab.toLowerCase() && s.line_item === 'FOOTNOTE'
+  );
+
+  const uniqueYears = Array.from(new Set(currentTabStatements.map((s) => s.fiscal_year))).filter((y) => y !== 'ALL').sort();
 
   const lineItemMap = new Map<string, DisplayRow>();
   currentTabStatements.forEach((row) => {
@@ -177,19 +206,27 @@ export default function DataPage() {
   const displayRows = Array.from(lineItemMap.values());
 
   const tabList: { id: DataTab; label: string; icon: string }[] = [
-    { id: 'info', label: 'Company Information', icon: '🏢' },
-    { id: 'management', label: 'Directors & Key Management', icon: '👥' },
+    { id: 'overview', label: 'Company Overview', icon: '🏢' },
+    { id: 'management', label: 'Directors and Management', icon: '👥' },
     { id: 'pnl', label: 'Income Statement', icon: '📈' },
     { id: 'bs', label: 'Balance Sheet', icon: '⚖️' },
-    { id: 'cf', label: 'Cashflow Statement', icon: '💵' },
     { id: 'soce', label: 'Statement of Changes in Equity', icon: '📊' },
+    { id: 'cf', label: 'Cashflow Statement', icon: '💵' },
     { id: 'ratios', label: 'Ratios', icon: '📐' },
     { id: 'shareholding', label: 'Reported Shareholding', icon: '🤝' },
   ];
 
+  // Helper groupings for Overview tab
+  const corporateOverviewList = overviewSections.filter((s) => s.section_type === 'overview');
+  const detailedCorpInfoList = overviewSections.filter((s) => s.section_type === 'corp_info');
+  const shareCapitalList = overviewSections.filter((s) => s.section_type === 'share_capital');
+  const overviewFootnote = overviewSections.find((s) => s.section_type === 'footnote');
+
+  const boardList = managementList.filter((m) => m.category === 'Board');
+  const seniorMgmtList = managementList.filter((m) => m.category === 'Executive');
+
   return (
     <div className="min-h-screen bg-white text-[#1E2430] flex flex-col font-sans">
-      {/* Header */}
       <header className="border-b border-gray-200 bg-[#273142] text-white px-6 py-4 flex justify-between items-center">
         <div className="flex items-center gap-4">
           <Link href="/" className="text-2xl font-bold text-white tracking-tight">
@@ -264,7 +301,7 @@ export default function DataPage() {
           </div>
         </aside>
 
-        {/* Main Content Area */}
+        {/* Main Content Viewer Area */}
         <main className="flex-1 p-6 overflow-y-auto flex flex-col gap-6 bg-white relative">
           {!selectedCompany ? (
             <div className="bg-[#F8FAFC] border border-gray-200 p-12 text-center rounded-lg">
@@ -272,7 +309,7 @@ export default function DataPage() {
             </div>
           ) : (
             <>
-              {/* Company Header Info Card */}
+              {/* Header Info Card */}
               <div className="bg-[#F8FAFC] border border-gray-200 p-5 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                   <div className="flex items-center gap-3 mb-1">
@@ -282,19 +319,16 @@ export default function DataPage() {
                     </span>
                   </div>
                   <p className="text-xs text-[#667085]">
-                    {selectedCompany.country} • {selectedCompany.sector} • Currency:{' '}
-                    <span className="text-[#1E2430] font-medium">
-                      {selectedCompany.currency || 'Original Source Currency'}
-                    </span>
+                    {selectedCompany.country} • {selectedCompany.sector}
                   </p>
                 </div>
 
-                <div className="text-xs text-[#667085] bg-white px-3 py-2 rounded border border-gray-200 shadow-sm">
-                  Live Corporate Database
+                <div className="text-xs text-[#667085] bg-white px-3 py-2 rounded border border-gray-200 shadow-sm font-semibold">
+                  Primary Corporate Database
                 </div>
               </div>
 
-              {/* FIX 1: Frozen/Sticky Navigation Tabs Header */}
+              {/* Frozen Navigation Header */}
               <div className="sticky top-0 z-20 bg-white py-2 border-b border-gray-200 flex gap-2 overflow-x-auto shadow-sm">
                 {tabList.map((tab) => {
                   const isActive = activeTab === tab.id;
@@ -315,70 +349,223 @@ export default function DataPage() {
                 })}
               </div>
 
-              {/* Tab Content Display */}
+              {/* Tab Display Area */}
               {isLoadingData ? (
                 <div className="p-8 text-center text-xs text-[#667085]">Loading dataset...</div>
               ) : (
                 <>
-                  {/* TAB 1: Company Information */}
-                  {activeTab === 'info' && (
-                    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                      <div className="p-4 bg-[#F8FAFC] border-b border-gray-200 font-bold text-sm text-[#1E2430]">
-                        Company Profile & Overview
-                      </div>
-                      {infoItems.length === 0 ? (
-                        <div className="p-8 text-center text-xs text-[#667085]">No company information recorded.</div>
-                      ) : (
-                        <div className="divide-y divide-gray-200 text-xs">
-                          {infoItems.map((item) => (
-                            <div key={item.id} className="grid grid-cols-3 p-3 hover:bg-gray-50">
-                              <span className="font-semibold text-[#667085]">{item.field_label}</span>
-                              <span className="col-span-2 text-[#1E2430] font-medium">{item.field_value}</span>
+                  {/* TAB 1: Company Overview */}
+                  {activeTab === 'overview' && (
+                    <div className="space-y-6">
+                      {/* Section A: Corporate Overview Top Card */}
+                      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                        <div className="p-4 bg-[#273142] text-white font-bold text-sm">
+                          Corporate Overview
+                        </div>
+                        <div className="p-4 divide-y divide-gray-200 text-xs">
+                          {corporateOverviewList.map((item) => (
+                            <div key={item.id} className="py-3 grid grid-cols-1 md:grid-cols-4 gap-2">
+                              <span className="font-bold text-[#273142] md:col-span-1">{item.field_label}</span>
+                              <span className="text-[#1E2430] md:col-span-3 leading-relaxed whitespace-pre-wrap">{item.field_value}</span>
                             </div>
                           ))}
+                        </div>
+                      </div>
+
+                      {/* Section B: Side-by-Side 3-Column Tables */}
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Table 1: Detailed Corporate Information */}
+                        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm flex flex-col">
+                          <div className="p-3 bg-[#F8FAFC] border-b border-gray-200 font-bold text-xs text-[#1E2430]">
+                            Detailed Corporate Information
+                          </div>
+                          <div className="p-3 divide-y divide-gray-100 text-xs flex-1">
+                            {detailedCorpInfoList.map((item) => (
+                              <div key={item.id} className="py-2.5 flex flex-col gap-0.5">
+                                <span className="font-semibold text-[#667085] text-[11px]">{item.field_label}</span>
+                                <span className="text-[#1E2430] font-medium leading-snug whitespace-pre-wrap">{item.field_value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Table 2: Subsidiaries of the company */}
+                        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm flex flex-col">
+                          <div className="p-3 bg-[#F8FAFC] border-b border-gray-200 font-bold text-xs text-[#1E2430]">
+                            Subsidiaries of the Company
+                          </div>
+                          <div className="overflow-x-auto flex-1">
+                            <table className="w-full text-left border-collapse text-xs">
+                              <thead>
+                                <tr className="bg-[#F1F5F9] text-[#273142] border-b border-gray-200 font-bold">
+                                  <th className="p-2.5">Subsidiary</th>
+                                  <th className="p-2.5">Holding</th>
+                                  <th className="p-2.5">Purpose</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-200 text-[11px]">
+                                {subsidiaries.map((sub) => (
+                                  <tr key={sub.id} className="hover:bg-gray-50">
+                                    <td className="p-2.5 font-bold text-[#1E2430]">{sub.subsidiary_name}</td>
+                                    <td className="p-2.5 font-mono text-[#0F8B8D] font-bold">{sub.shareholding_pct}</td>
+                                    <td className="p-2.5 text-[#667085] leading-tight">{sub.purpose}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                        {/* Table 3: Credit Ratings */}
+                        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm flex flex-col">
+                          <div className="p-3 bg-[#F8FAFC] border-b border-gray-200 font-bold text-xs text-[#1E2430]">
+                            Credit Ratings
+                          </div>
+                          <div className="overflow-x-auto flex-1">
+                            <table className="w-full text-left border-collapse text-xs">
+                              <thead>
+                                <tr className="bg-[#F1F5F9] text-[#273142] border-b border-gray-200 font-bold">
+                                  <th className="p-2.5">Entity Name</th>
+                                  <th className="p-2.5">Rating</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-200 text-[11px]">
+                                {creditRatings.map((rat) => (
+                                  <tr key={rat.id} className="hover:bg-gray-50">
+                                    <td className="p-2.5 font-bold text-[#1E2430]">{rat.entity_name}</td>
+                                    <td className="p-2.5 font-mono text-[#2F6FED] font-semibold">{rat.rating}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section C: Top Shareholders & Capital Structure */}
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div className="lg:col-span-2 bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                          <div className="p-3 bg-[#F8FAFC] border-b border-gray-200 font-bold text-xs text-[#1E2430]">
+                            Top Shareholders
+                          </div>
+                          <table className="w-full text-left border-collapse text-xs">
+                            <thead>
+                              <tr className="bg-[#F1F5F9] text-[#273142] border-b border-gray-200 font-bold">
+                                <th className="p-2.5">Shareholder Name</th>
+                                <th className="p-2.5 text-right">Percentage</th>
+                                <th className="p-2.5 text-right">Reporting Date</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 text-[11px] font-mono">
+                              {shareholders.map((sh) => (
+                                <tr key={sh.id} className="hover:bg-gray-50">
+                                  <td className="p-2.5 font-bold text-[#1E2430] font-sans">{sh.shareholder_name}</td>
+                                  <td className="p-2.5 text-right text-[#0F8B8D] font-bold">{sh.percentage}</td>
+                                  <td className="p-2.5 text-right text-[#667085]">{sh.reporting_date}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm p-4 flex flex-col justify-between">
+                          <div>
+                            <h3 className="font-bold text-xs text-[#1E2430] border-b pb-2 mb-3">Share Capital Summary</h3>
+                            <div className="space-y-3 text-xs">
+                              {shareCapitalList.map((sc) => (
+                                <div key={sc.id} className="flex flex-col gap-0.5">
+                                  <span className="text-[#667085] text-[11px]">{sc.field_label}</span>
+                                  <span className="font-bold text-[#2F6FED] text-sm font-mono">{sc.field_value}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Footnotes */}
+                      {overviewFootnote && (
+                        <div className="p-3 bg-[#F8FAFC] border border-gray-200 rounded-lg text-[11px] text-[#667085] italic leading-relaxed">
+                          {overviewFootnote.field_value}
                         </div>
                       )}
                     </div>
                   )}
 
-                  {/* TAB 2: Directors & Key Management */}
+                  {/* TAB 2: Directors and Management */}
                   {activeTab === 'management' && (
-                    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                      <div className="p-4 bg-[#F8FAFC] border-b border-gray-200 font-bold text-sm text-[#1E2430]">
-                        Board of Directors & Senior Management
-                      </div>
-                      {managementList.length === 0 ? (
-                        <div className="p-8 text-center text-xs text-[#667085]">No management records uploaded.</div>
-                      ) : (
-                        <table className="w-full text-left border-collapse text-xs">
-                          <thead>
-                            <tr className="bg-[#F1F5F9] text-[#273142] border-b border-gray-200 font-bold">
-                              <th className="p-3">Name</th>
-                              <th className="p-3">Position / Role</th>
-                              <th className="p-3">Category</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-200">
-                            {managementList.map((person) => (
-                              <tr key={person.id} className="hover:bg-gray-50">
-                                <td className="p-3 font-bold text-[#1E2430]">{person.person_name}</td>
-                                <td className="p-3 text-[#667085]">{person.role_title}</td>
-                                <td className="p-3">
-                                  <span className="bg-[#2F6FED]/10 text-[#2F6FED] px-2 py-0.5 rounded text-[10px] font-semibold border border-[#2F6FED]/20">
-                                    {person.category}
-                                  </span>
-                                </td>
+                    <div className="space-y-8">
+                      {/* Section 1: Board of Directors */}
+                      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                        <div className="p-4 bg-[#273142] text-white font-bold text-sm">
+                          Board of Directors
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse text-xs min-w-[850px]">
+                            <thead>
+                              <tr className="bg-[#F1F5F9] text-[#273142] border-b border-gray-200 font-bold">
+                                <th className="p-3 w-[180px]">Name</th>
+                                <th className="p-3 w-[160px]">Position Held</th>
+                                <th className="p-3 w-[160px]">Board Committees</th>
+                                <th className="p-3 w-[110px]">Appointed Date</th>
+                                <th className="p-3 min-w-[250px]">Profile</th>
+                                <th className="p-3 min-w-[200px]">Other Directorships</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 text-[11px]">
+                              {boardList.map((person) => (
+                                <tr key={person.id} className="hover:bg-gray-50 align-top">
+                                  <td className="p-3 font-bold text-[#1E2430]">{person.person_name}</td>
+                                  <td className="p-3 text-[#2F6FED] font-medium">{person.role_title}</td>
+                                  <td className="p-3 text-[#667085]">{person.board_committees}</td>
+                                  <td className="p-3 text-[#667085]">{person.appointed_date}</td>
+                                  <td className="p-3 text-[#1E2430] leading-relaxed whitespace-pre-wrap">{person.profile}</td>
+                                  <td className="p-3 text-[#667085] leading-relaxed whitespace-pre-wrap">{person.other_directorships}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Section 2: Senior Management */}
+                      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                        <div className="p-4 bg-[#273142] text-white font-bold text-sm">
+                          Executive & Senior Management
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse text-xs min-w-[850px]">
+                            <thead>
+                              <tr className="bg-[#F1F5F9] text-[#273142] border-b border-gray-200 font-bold">
+                                <th className="p-3 w-[180px]">Name</th>
+                                <th className="p-3 w-[160px]">Position Held</th>
+                                <th className="p-3 w-[160px]">Board Committees</th>
+                                <th className="p-3 w-[110px]">Appointed Date</th>
+                                <th className="p-3 min-w-[250px]">Profile</th>
+                                <th className="p-3 min-w-[200px]">Other Directorships</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 text-[11px]">
+                              {seniorMgmtList.map((person) => (
+                                <tr key={person.id} className="hover:bg-gray-50 align-top">
+                                  <td className="p-3 font-bold text-[#1E2430]">{person.person_name}</td>
+                                  <td className="p-3 text-[#0F8B8D] font-medium">{person.role_title}</td>
+                                  <td className="p-3 text-[#667085]">{person.board_committees}</td>
+                                  <td className="p-3 text-[#667085]">{person.appointed_date}</td>
+                                  <td className="p-3 text-[#1E2430] leading-relaxed whitespace-pre-wrap">{person.profile}</td>
+                                  <td className="p-3 text-[#667085] leading-relaxed whitespace-pre-wrap">{person.other_directorships}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
                     </div>
                   )}
 
                   {/* TAB 3-7: Financial Statements & Ratios */}
                   {isStatementTab && (
-                    <>
+                    <div className="space-y-4">
                       {displayRows.length === 0 ? (
                         <div className="bg-[#F8FAFC] border border-gray-200 p-12 text-center rounded-lg">
                           <p className="text-[#667085] text-sm">
@@ -390,7 +577,6 @@ export default function DataPage() {
                           <table className="w-full text-left border-collapse table-fixed">
                             <thead>
                               <tr className="border-b border-gray-200 bg-[#F8FAFC] text-xs font-bold text-[#273142]">
-                                {/* FIX 3: Column Width set to ~4cm (151px) with Text Wrapping */}
                                 <th className="p-3 w-[151px] min-w-[151px] max-w-[151px] border-r border-gray-200 sticky left-0 bg-[#F8FAFC] z-10 whitespace-normal break-words">
                                   Line Item / Metric
                                 </th>
@@ -403,7 +589,6 @@ export default function DataPage() {
                             </thead>
                             <tbody className="divide-y divide-gray-200 text-xs font-mono">
                               {displayRows.map((row, idx) => {
-                                // FIX 4: Header Section Formatting
                                 if (row.isHeader) {
                                   return (
                                     <tr key={idx} className="bg-[#F1F5F9] text-[#1E2430] font-bold">
@@ -419,7 +604,6 @@ export default function DataPage() {
                                   );
                                 }
 
-                                // FIX 4: Total & Subtotal Rows Formatting
                                 if (row.isTotal) {
                                   return (
                                     <tr key={idx} className="bg-[#0F8B8D]/10 text-[#1E2430] font-bold border-t border-b-2 border-[#1E2430]">
@@ -435,7 +619,6 @@ export default function DataPage() {
                                   );
                                 }
 
-                                // FIX 3 & 4: Standard Line Item with Auto-wrapping and Indentation
                                 return (
                                   <tr key={idx} className="hover:bg-gray-50 text-[#273142]">
                                     <td
@@ -457,7 +640,13 @@ export default function DataPage() {
                           </table>
                         </div>
                       )}
-                    </>
+
+                      {footnoteRow && (
+                        <div className="p-3 bg-[#F8FAFC] border border-gray-200 rounded-lg text-[11px] text-[#667085] italic leading-relaxed">
+                          {footnoteRow.amount_text}
+                        </div>
+                      )}
+                    </div>
                   )}
 
                   {/* TAB 8: Reported Shareholding */}
@@ -473,16 +662,16 @@ export default function DataPage() {
                           <thead>
                             <tr className="bg-[#F1F5F9] text-[#273142] border-b border-gray-200 font-bold">
                               <th className="p-3">Shareholder Name</th>
-                              <th className="p-3 text-right">Number of Shares</th>
                               <th className="p-3 text-right">Shareholding (%)</th>
+                              <th className="p-3 text-right">Reporting Date</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-200 font-mono">
                             {shareholders.map((sh) => (
                               <tr key={sh.id} className="hover:bg-gray-50">
                                 <td className="p-3 font-bold text-[#1E2430] font-sans">{sh.shareholder_name}</td>
-                                <td className="p-3 text-right text-[#667085]">{sh.shares_count}</td>
                                 <td className="p-3 text-right text-[#0F8B8D] font-bold">{sh.percentage}</td>
+                                <td className="p-3 text-right text-[#667085]">{sh.reporting_date}</td>
                               </tr>
                             ))}
                           </tbody>
