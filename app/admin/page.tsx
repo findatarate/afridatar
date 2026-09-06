@@ -121,6 +121,7 @@ export default function AdminPage() {
     return null;
   };
 
+  // FIX 2: Verbatim Parsing - Exact text preservation without overrides
   const parseFinancialValue = (val: any): { numeric: number; formatted: string } => {
     if (val === null || val === undefined || String(val).trim() === '') {
       return { numeric: 0, formatted: '-' };
@@ -171,7 +172,6 @@ export default function AdminPage() {
             ticker: companyDetails.ticker,
             country: companyDetails.country,
             sector: companyDetails.sector,
-            currency: 'USD / ZWG',
           })
           .select('id')
           .single();
@@ -205,7 +205,7 @@ export default function AdminPage() {
 
       if (jsonRows.length < 1) continue;
 
-      // 1. Company Info Parser
+      // FIX 2: Exact mapping for Company Info tab
       if (tabType === 'info') {
         for (const row of jsonRows) {
           if (!row || !Array.isArray(row)) continue;
@@ -214,14 +214,14 @@ export default function AdminPage() {
             infoEntries.push({
               company_id: companyId,
               field_label: nonCols[0],
-              field_value: nonCols.slice(1).join(' - '),
+              field_value: nonCols.slice(1).join(' '),
             });
           }
         }
         continue;
       }
 
-      // 2. Directors & Management Parser
+      // FIX 2: Exact mapping for Directors & Management
       if (tabType === 'management') {
         for (const row of jsonRows) {
           if (!row || !Array.isArray(row)) continue;
@@ -242,7 +242,7 @@ export default function AdminPage() {
         continue;
       }
 
-      // 3. Shareholding Parser
+      // FIX 2: Exact mapping for Shareholding
       if (tabType === 'shareholding') {
         for (const row of jsonRows) {
           if (!row || !Array.isArray(row)) continue;
@@ -263,7 +263,7 @@ export default function AdminPage() {
         continue;
       }
 
-      // 4. Financial Statements & Ratios Parser
+      // Financial Statements & Ratios
       let headerRowIndex = -1;
       let yearColumns: Array<{ year: string; colIndex: number }> = [];
 
