@@ -50,8 +50,8 @@ export default function AdminPage() {
   const [replaceTargetCompany, setReplaceTargetCompany] = useState<LiveCompany | null>(null);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [targetCompany, setTargetCompany] = useState('CBZ Holdings');
-  const [targetTicker, setTargetTicker] = useState('CBZ.zw');
+  const [targetCompany, setTargetCompany] = useState('CBZ Holdings Limited');
+  const [targetTicker, setTargetTicker] = useState('CBZH.zw');
   const [targetCountry, setTargetCountry] = useState('Zimbabwe');
   const [targetSector, setTargetSector] = useState('Banking & Financial Services');
   
@@ -99,7 +99,7 @@ export default function AdminPage() {
   const detectSheetType = (sheetName: string): string | null => {
     const name = sheetName.toLowerCase().replace(/[^a-z0-9&]/g, '');
 
-    if (name.includes('info') || name.includes('overview') || name.includes('profile') || name.includes('company')) return 'info';
+    if (name.includes('overview') || name.includes('info') || name.includes('profile') || name.includes('company')) return 'overview';
     if (name.includes('director') || name.includes('management') || name.includes('board') || name.includes('executive')) return 'management';
     if (name.includes('pnl') || name.includes('p&l') || name.includes('income') || name.includes('profit')) return 'pnl';
     if (name.includes('bs') || name.includes('sofp') || name.includes('balance') || name.includes('position')) return 'bs';
@@ -121,7 +121,6 @@ export default function AdminPage() {
     return null;
   };
 
-  // FIX 2: Verbatim Parsing - Exact text preservation without overrides
   const parseFinancialValue = (val: any): { numeric: number; formatted: string } => {
     if (val === null || val === undefined || String(val).trim() === '') {
       return { numeric: 0, formatted: '-' };
@@ -181,9 +180,22 @@ export default function AdminPage() {
       }
     }
 
-    const infoEntries: Array<{ company_id: string; field_label: string; field_value: string }> = [];
-    const mgmtEntries: Array<{ company_id: string; person_name: string; role_title: string; category: string }> = [];
-    const shareholderEntries: Array<{ company_id: string; shareholder_name: string; shares_count: string; percentage: string }> = [];
+    const overviewEntries: Array<{ company_id: string; section_type: string; field_label: string; field_value: string }> = [];
+    const subsidiariesEntries: Array<{ company_id: string; subsidiary_name: string; shareholding_pct: string; purpose: string }> = [];
+    const creditRatingEntries: Array<{ company_id: string; entity_name: string; rating: string }> = [];
+    const shareholderEntries: Array<{ company_id: string; shareholder_name: string; shares_count: string; percentage: string; reporting_date: string }> = [];
+    
+    const mgmtEntries: Array<{
+      company_id: string;
+      person_name: string;
+      role_title: string;
+      board_committees: string;
+      appointed_date: string;
+      profile: string;
+      other_directorships: string;
+      category: string;
+    }> = [];
+
     const statementEntries: Array<{
       company_id: string;
       statement_type: string;
@@ -205,65 +217,117 @@ export default function AdminPage() {
 
       if (jsonRows.length < 1) continue;
 
-      // FIX 2: Exact mapping for Company Info tab
-      if (tabType === 'info') {
-        for (const row of jsonRows) {
-          if (!row || !Array.isArray(row)) continue;
-          const nonCols = row.map((c) => String(c || '').trim()).filter(Boolean);
-          if (nonCols.length >= 2) {
-            infoEntries.push({
-              company_id: companyId,
-              field_label: nonCols[0],
-              field_value: nonCols.slice(1).join(' '),
-            });
+      // 1. Company Overview Parser (Handles Side-by-Side Tables)
+      if (tabType === 'overview') {
+        // Corporate Overview (Rows 2 to 8, Cols A & B)
+        for (let r = 1; r < Math.min(jsonRows.length, 9); r++) {
+          const row = jsonRows[r];
+          if (!row) continue;
+          const k = row[0] ? String(row[0]).trim() : '';
+          const v = row[1] ? String(row[1]).trim() : '';
+          if (k && v && k.toLowerCase() !== 'corporate overview') {
+            overviewEntries.push({ company_id: companyId, section_type: 'overview', field_label: k, field_value: v });
+          }
+        }
+
+        // Detailed Corporate Information (Cols A & B, Rows 11+)
+        for (let r = 10; r < jsonRows.length; r++) {
+          const row = jsonRows[r];
+          if (!row) continue;
+          const k = row[0] ? String(row[0]).trim() : '';
+          const v = row[1] ? String(row[1]).trim() : '';
+          if (k && v && k !== 'Corporate Information Item' && k !== 'Detailed Corporate Information') {
+            overviewEntries.push({ company_id: companyId, section_type: 'corp_info', field_label: k, field_value: v });
+          }
+        }
+
+        // Subsidiaries (Cols D, E, F - Indexes 3, 4, 5)
+        for (let r = 10; r < jsonRows.length; r++) {
+          const row = jsonRows[r];
+          if (!row) continue;
+          const sub = row[3] ? String(row[3]).trim() : '';
+          const pct = row[4] !== undefined && row[4] !== null ? String(row[4]).trim() : '';
+          const pur = row[5] ? String(row[5]).trim() : '';
+          if (sub && sub !== 'Subsidiary' && sub !== 'Subsidiaries of the company' && !sub.startsWith('Top Shareholders')) {
+            subsidiariesEntries.push({ company_id: companyId, subsidiary_name: sub, shareholding_pct: pct, purpose: pur });
+          }
+        }
+
+        // Credit Ratings (Cols H & I - Indexes 7, 8)
+        for (let r = 10; r < jsonRows.length; r++) {
+          const row = jsonRows[r];
+          if (!row) continue;
+          const ent = row[7] ? String(row[7]).trim() : '';
+          const rat = row[8] ? String(row[8]).trim() : '';
+          if (ent && ent !== 'Entity name' && ent !== 'Credit Ratings') {
+            creditRatingEntries.push({ company_id: companyId, entity_name: ent, rating: rat });
+          }
+        }
+
+        // Top Shareholders & Share Capital (Cols D, E, F - Indexes 3, 4, 5 starting around Row 27+)
+        for (let r = 26; r < jsonRows.length; r++) {
+          const row = jsonRows[r];
+          if (!row) continue;
+          const name = row[3] ? String(row[3]).trim() : '';
+          const val = row[4] !== undefined && row[4] !== null ? String(row[4]).trim() : '';
+          const date = row[5] ? String(row[5]).trim() : '';
+
+          if (name) {
+            if (['Total Shares in Issue', 'Authorised Share Capital', 'Share Class(es)'].includes(name)) {
+              overviewEntries.push({ company_id: companyId, section_type: 'share_capital', field_label: name, field_value: val });
+            } else if (name !== 'Shareholder name' && name !== 'Top Shareholders') {
+              shareholderEntries.push({
+                company_id: companyId,
+                shareholder_name: name,
+                shares_count: '-',
+                percentage: val,
+                reporting_date: date,
+              });
+            }
+          }
+        }
+
+        // Footnote (Col A towards bottom)
+        for (let r = 40; r < jsonRows.length; r++) {
+          const row = jsonRows[r];
+          if (!row) continue;
+          const fn = row[0] ? String(row[0]).trim() : '';
+          if (fn && fn.includes('NR =')) {
+            overviewEntries.push({ company_id: companyId, section_type: 'footnote', field_label: 'Disclaimer', field_value: fn });
           }
         }
         continue;
       }
 
-      // FIX 2: Exact mapping for Directors & Management
+      // 2. Directors & Management Parser (Extracts Board & Senior Management)
       if (tabType === 'management') {
-        for (const row of jsonRows) {
-          if (!row || !Array.isArray(row)) continue;
-          const nonCols = row.map((c) => String(c || '').trim()).filter(Boolean);
-          if (nonCols.length >= 1) {
-            const firstLabel = nonCols[0].toLowerCase();
-            if (firstLabel.includes('name') || firstLabel.includes('person') || firstLabel === 's/n' || firstLabel === 'no.') {
-              continue;
-            }
-            mgmtEntries.push({
-              company_id: companyId,
-              person_name: nonCols[0],
-              role_title: nonCols[1] || 'Director',
-              category: nonCols[2] || 'Board / Executive',
-            });
+        let currentSection = 'Board';
+
+        for (let r = 1; r < jsonRows.length; r++) {
+          const row = jsonRows[r];
+          if (!row || !row[0]) continue;
+
+          const personName = String(row[0]).trim();
+          if (personName.toLowerCase() === 'name') {
+            if (mgmtEntries.length > 0) currentSection = 'Executive';
+            continue;
           }
+
+          mgmtEntries.push({
+            company_id: companyId,
+            person_name: personName,
+            role_title: row[1] ? String(row[1]).trim() : 'Director',
+            board_committees: row[2] ? String(row[2]).trim() : '–',
+            appointed_date: row[3] ? String(row[3]).trim() : '–',
+            profile: row[4] ? String(row[4]).trim() : 'Not Reported',
+            other_directorships: row[5] ? String(row[5]).trim() : 'None',
+            category: currentSection,
+          });
         }
         continue;
       }
 
-      // FIX 2: Exact mapping for Shareholding
-      if (tabType === 'shareholding') {
-        for (const row of jsonRows) {
-          if (!row || !Array.isArray(row)) continue;
-          const nonCols = row.map((c) => String(c || '').trim()).filter(Boolean);
-          if (nonCols.length >= 1) {
-            const firstLabel = nonCols[0].toLowerCase();
-            if (firstLabel.includes('name') || firstLabel.includes('shareholder') || firstLabel === 's/n' || firstLabel === 'no.') {
-              continue;
-            }
-            shareholderEntries.push({
-              company_id: companyId,
-              shareholder_name: nonCols[0],
-              shares_count: nonCols[1] || '-',
-              percentage: nonCols[2] || '-',
-            });
-          }
-        }
-        continue;
-      }
-
-      // Financial Statements & Ratios
+      // 3. Financial Statements & Ratios Parser
       let headerRowIndex = -1;
       let yearColumns: Array<{ year: string; colIndex: number }> = [];
 
@@ -300,6 +364,21 @@ export default function AdminPage() {
 
         if (!rawLabel) continue;
 
+        if (rawLabel.includes('NR =')) {
+          statementEntries.push({
+            company_id: companyId,
+            statement_type: tabType,
+            line_item: 'FOOTNOTE',
+            fiscal_year: 'ALL',
+            amount: 0,
+            amount_text: rawLabel,
+            is_header: false,
+            is_total: false,
+            indent: false,
+          });
+          continue;
+        }
+
         const isHeader = rawLabel.toUpperCase() === rawLabel && !row.some((val: any, i: number) => i >= firstYearColIndex && val !== '' && val !== null);
         const isTotal = rawLabel.toLowerCase().includes('total') || rawLabel.toLowerCase().includes('profit') || rawLabel.toLowerCase().includes('net');
         const indent = String(row[0] || '').startsWith(' ') || String(row[0] || '').startsWith('\t');
@@ -323,17 +402,30 @@ export default function AdminPage() {
       }
     }
 
-    await supabase.from('company_info_items').delete().eq('company_id', companyId);
-    await supabase.from('directors_management').delete().eq('company_id', companyId);
+    // Clear old data for clean overwrite
+    await supabase.from('company_overview_sections').delete().eq('company_id', companyId);
+    await supabase.from('subsidiaries').delete().eq('company_id', companyId);
+    await supabase.from('credit_ratings').delete().eq('company_id', companyId);
     await supabase.from('shareholders').delete().eq('company_id', companyId);
+    await supabase.from('directors_management').delete().eq('company_id', companyId);
     await supabase.from('financial_statements').delete().eq('company_id', companyId);
 
-    if (infoEntries.length > 0) await supabase.from('company_info_items').insert(infoEntries);
-    if (mgmtEntries.length > 0) await supabase.from('directors_management').insert(mgmtEntries);
+    // Insert parsed data
+    if (overviewEntries.length > 0) await supabase.from('company_overview_sections').insert(overviewEntries);
+    if (subsidiariesEntries.length > 0) await supabase.from('subsidiaries').insert(subsidiariesEntries);
+    if (creditRatingEntries.length > 0) await supabase.from('credit_ratings').insert(creditRatingEntries);
     if (shareholderEntries.length > 0) await supabase.from('shareholders').insert(shareholderEntries);
+    if (mgmtEntries.length > 0) await supabase.from('directors_management').insert(mgmtEntries);
     if (statementEntries.length > 0) await supabase.from('financial_statements').insert(statementEntries);
 
-    const totalUploaded = infoEntries.length + mgmtEntries.length + shareholderEntries.length + statementEntries.length;
+    const totalUploaded =
+      overviewEntries.length +
+      subsidiariesEntries.length +
+      creditRatingEntries.length +
+      shareholderEntries.length +
+      mgmtEntries.length +
+      statementEntries.length;
+
     if (totalUploaded === 0) {
       throw new Error(`Could not extract data from "${file.name}". Check sheet tab names.`);
     }
@@ -413,10 +505,10 @@ export default function AdminPage() {
 
       if (statements && statements.length > 0) {
         const tabNames: Record<string, string> = {
-          pnl: 'P&L',
+          pnl: 'Income Statement',
           bs: 'Balance Sheet',
-          cf: 'Cash Flow',
-          soce: 'SOCE',
+          cf: 'Cashflow Statement',
+          soce: 'Statement of Changes in Equity',
           ratios: 'Ratios',
         };
 
@@ -424,7 +516,7 @@ export default function AdminPage() {
           const stmtRows = statements.filter((s) => s.statement_type.toLowerCase() === stmtType);
           if (stmtRows.length === 0) return;
 
-          const years = Array.from(new Set(stmtRows.map((s) => s.fiscal_year))).sort();
+          const years = Array.from(new Set(stmtRows.map((s) => s.fiscal_year))).filter((y) => y !== 'ALL').sort();
           const lineItemMap = new Map<string, Record<string, string>>();
 
           stmtRows.forEach((s) => {
@@ -460,9 +552,11 @@ export default function AdminPage() {
     setIsDeletingId(companyId);
 
     try {
-      await supabase.from('company_info_items').delete().eq('company_id', companyId);
-      await supabase.from('directors_management').delete().eq('company_id', companyId);
+      await supabase.from('company_overview_sections').delete().eq('company_id', companyId);
+      await supabase.from('subsidiaries').delete().eq('company_id', companyId);
+      await supabase.from('credit_ratings').delete().eq('company_id', companyId);
       await supabase.from('shareholders').delete().eq('company_id', companyId);
+      await supabase.from('directors_management').delete().eq('company_id', companyId);
       await supabase.from('financial_statements').delete().eq('company_id', companyId);
       const { error } = await supabase.from('companies').delete().eq('id', companyId);
 
@@ -548,7 +642,7 @@ export default function AdminPage() {
           <div className="bg-[#F8FAFC] border border-gray-200 p-6 rounded-xl max-w-2xl shadow-sm">
             <h2 className="text-xl font-bold text-[#1E2430] mb-1">Import Multi-Tab Excel Spreads</h2>
             <p className="text-xs text-[#667085] mb-6">
-              Supported tabs: <code className="text-[#0F8B8D]">Company Info</code>, <code className="text-[#0F8B8D]">Directors</code>, <code className="text-[#0F8B8D]">P&L</code>, <code className="text-[#0F8B8D]">BS</code>, <code className="text-[#0F8B8D]">CF</code>, <code className="text-[#0F8B8D]">SOCE</code>, <code className="text-[#0F8B8D]">Ratios</code>, <code className="text-[#0F8B8D]">Shareholding</code>.
+              Supported tabs: <code className="text-[#0F8B8D]">Company Overview</code>, <code className="text-[#0F8B8D]">Directors and Management</code>, <code className="text-[#0F8B8D]">Income Statement</code>, <code className="text-[#0F8B8D]">Balance Sheet</code>, <code className="text-[#0F8B8D]">Statement of Changes in Equity</code>, <code className="text-[#0F8B8D]">Cashflow Statement</code>, <code className="text-[#0F8B8D]">Ratios</code>.
             </p>
 
             <form onSubmit={handleUploadSubmit} className="space-y-4">
@@ -607,7 +701,7 @@ export default function AdminPage() {
                     <span className="text-xs text-[#1E2430] font-medium">
                       {selectedFile ? selectedFile.name : 'Click to select or drag and drop Excel file'}
                     </span>
-                    <span className="text-[10px] text-[#667085]">Automatically inserts into Supabase</span>
+                    <span className="text-[10px] text-[#667085]">Automatically inserts side-by-side tables into Supabase</span>
                   </label>
                 </div>
               </div>
