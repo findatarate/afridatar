@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 
-type DataTab = 'overview' | 'management' | 'pnl' | 'bs' | 'cf' | 'soce' | 'ratios' | 'shareholding';
+// FIX 4: Removed redundant 'shareholding' tab from navigation
+type DataTab = 'overview' | 'management' | 'pnl' | 'bs' | 'soce' | 'cf' | 'ratios';
 
 interface Company {
   id: string;
@@ -177,7 +178,10 @@ export default function DataPage() {
     (s) => s.statement_type.toLowerCase() === activeTab.toLowerCase() && s.line_item === 'FOOTNOTE'
   );
 
-  const uniqueYears = Array.from(new Set(currentTabStatements.map((s) => s.fiscal_year))).filter((y) => y !== 'ALL').sort();
+  // FIX 2: Financial Statement Year Order - Sort descending (Most recent year first)
+  const uniqueYears = Array.from(new Set(currentTabStatements.map((s) => s.fiscal_year)))
+    .filter((y) => y !== 'ALL')
+    .sort((a, b) => b.localeCompare(a));
 
   const lineItemMap = new Map<string, DisplayRow>();
   currentTabStatements.forEach((row) => {
@@ -205,6 +209,7 @@ export default function DataPage() {
 
   const displayRows = Array.from(lineItemMap.values());
 
+  // FIX 4: Updated Navigation Tab List (Reported Shareholding removed)
   const tabList: { id: DataTab; label: string; icon: string }[] = [
     { id: 'overview', label: 'Company Overview', icon: '🏢' },
     { id: 'management', label: 'Directors and Management', icon: '👥' },
@@ -213,10 +218,9 @@ export default function DataPage() {
     { id: 'soce', label: 'Statement of Changes in Equity', icon: '📊' },
     { id: 'cf', label: 'Cashflow Statement', icon: '💵' },
     { id: 'ratios', label: 'Ratios', icon: '📐' },
-    { id: 'shareholding', label: 'Reported Shareholding', icon: '🤝' },
   ];
 
-  // Helper groupings for Overview tab
+  // Helper groupings
   const corporateOverviewList = overviewSections.filter((s) => s.section_type === 'overview');
   const detailedCorpInfoList = overviewSections.filter((s) => s.section_type === 'corp_info');
   const shareCapitalList = overviewSections.filter((s) => s.section_type === 'share_capital');
@@ -224,6 +228,20 @@ export default function DataPage() {
 
   const boardList = managementList.filter((m) => m.category === 'Board');
   const seniorMgmtList = managementList.filter((m) => m.category === 'Executive');
+
+  // FIX 5: Dynamic Reporting Date Banner Sourcing
+  const dynamicReportingDate =
+    shareholders.find((s) => s.reporting_date && s.reporting_date !== '-')?.reporting_date ||
+    (uniqueYears.length > 0 ? `31 December ${uniqueYears[0]}` : '31 December 2025');
+
+  // Helper titles for statement section header bars
+  const statementTitles: Record<string, string> = {
+    pnl: 'Income Statement',
+    bs: 'Balance Sheet',
+    soce: 'Statement of Changes in Equity (SOCE)',
+    cf: 'Cash Flow Statement',
+    ratios: 'Financial & Operating Ratios',
+  };
 
   return (
     <div className="min-h-screen bg-white text-[#1E2430] flex flex-col font-sans">
@@ -328,6 +346,12 @@ export default function DataPage() {
                 </div>
               </div>
 
+              {/* FIX 5: Reporting Date Notice Banner */}
+              <div className="bg-blue-50 border border-blue-200 text-[#2F6FED] px-4 py-2.5 rounded-lg text-xs font-semibold flex items-center gap-2 shadow-sm">
+                <span className="text-base">ℹ️</span>
+                <span>All data is presented as per the official reported position as at {dynamicReportingDate}.</span>
+              </div>
+
               {/* Frozen Navigation Header */}
               <div className="sticky top-0 z-20 bg-white py-2 border-b border-gray-200 flex gap-2 overflow-x-auto shadow-sm">
                 {tabList.map((tab) => {
@@ -389,7 +413,7 @@ export default function DataPage() {
                           </div>
                         </div>
 
-                        {/* Table 2: Subsidiaries of the company */}
+                        {/* FIX 1: Table 2: Subsidiaries of the company (Cleanly separated) */}
                         <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm flex flex-col">
                           <div className="p-3 bg-[#F8FAFC] border-b border-gray-200 font-bold text-xs text-[#1E2430]">
                             Subsidiaries of the Company
@@ -405,7 +429,7 @@ export default function DataPage() {
                               </thead>
                               <tbody className="divide-y divide-gray-200 text-[11px]">
                                 {subsidiaries.map((sub) => (
-                                  <tr key={sub.id} className="hover:bg-gray-50">
+                                  <tr key={sub.id} className="hover:bg-gray-50 border-b border-gray-100">
                                     <td className="p-2.5 font-bold text-[#1E2430]">{sub.subsidiary_name}</td>
                                     <td className="p-2.5 font-mono text-[#0F8B8D] font-bold">{sub.shareholding_pct}</td>
                                     <td className="p-2.5 text-[#667085] leading-tight">{sub.purpose}</td>
@@ -431,7 +455,7 @@ export default function DataPage() {
                               </thead>
                               <tbody className="divide-y divide-gray-200 text-[11px]">
                                 {creditRatings.map((rat) => (
-                                  <tr key={rat.id} className="hover:bg-gray-50">
+                                  <tr key={rat.id} className="hover:bg-gray-50 border-b border-gray-100">
                                     <td className="p-2.5 font-bold text-[#1E2430]">{rat.entity_name}</td>
                                     <td className="p-2.5 font-mono text-[#2F6FED] font-semibold">{rat.rating}</td>
                                   </tr>
@@ -442,7 +466,7 @@ export default function DataPage() {
                         </div>
                       </div>
 
-                      {/* Section C: Top Shareholders & Capital Structure */}
+                      {/* FIX 1: Section C: Top Shareholders (Standalone Table) & Capital Structure */}
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         <div className="lg:col-span-2 bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
                           <div className="p-3 bg-[#F8FAFC] border-b border-gray-200 font-bold text-xs text-[#1E2430]">
@@ -458,7 +482,7 @@ export default function DataPage() {
                             </thead>
                             <tbody className="divide-y divide-gray-200 text-[11px] font-mono">
                               {shareholders.map((sh) => (
-                                <tr key={sh.id} className="hover:bg-gray-50">
+                                <tr key={sh.id} className="hover:bg-gray-50 border-b border-gray-100">
                                   <td className="p-2.5 font-bold text-[#1E2430] font-sans">{sh.shareholder_name}</td>
                                   <td className="p-2.5 text-right text-[#0F8B8D] font-bold">{sh.percentage}</td>
                                   <td className="p-2.5 text-right text-[#667085]">{sh.reporting_date}</td>
@@ -514,7 +538,7 @@ export default function DataPage() {
                             </thead>
                             <tbody className="divide-y divide-gray-200 text-[11px]">
                               {boardList.map((person) => (
-                                <tr key={person.id} className="hover:bg-gray-50 align-top">
+                                <tr key={person.id} className="hover:bg-gray-50 border-b border-gray-200 align-top">
                                   <td className="p-3 font-bold text-[#1E2430]">{person.person_name}</td>
                                   <td className="p-3 text-[#2F6FED] font-medium">{person.role_title}</td>
                                   <td className="p-3 text-[#667085]">{person.board_committees}</td>
@@ -547,7 +571,7 @@ export default function DataPage() {
                             </thead>
                             <tbody className="divide-y divide-gray-200 text-[11px]">
                               {seniorMgmtList.map((person) => (
-                                <tr key={person.id} className="hover:bg-gray-50 align-top">
+                                <tr key={person.id} className="hover:bg-gray-50 border-b border-gray-200 align-top">
                                   <td className="p-3 font-bold text-[#1E2430]">{person.person_name}</td>
                                   <td className="p-3 text-[#0F8B8D] font-medium">{person.role_title}</td>
                                   <td className="p-3 text-[#667085]">{person.board_committees}</td>
@@ -566,116 +590,96 @@ export default function DataPage() {
                   {/* TAB 3-7: Financial Statements & Ratios */}
                   {isStatementTab && (
                     <div className="space-y-4">
-                      {displayRows.length === 0 ? (
-                        <div className="bg-[#F8FAFC] border border-gray-200 p-12 text-center rounded-lg">
-                          <p className="text-[#667085] text-sm">
-                            No data uploaded for <span className="uppercase font-semibold">{activeTab}</span>.
-                          </p>
+                      {/* FIX 3: Prominent Section Header Bar */}
+                      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                        <div className="p-4 bg-[#273142] text-white font-bold text-sm">
+                          {statementTitles[activeTab] || 'Financial Statement'}
                         </div>
-                      ) : (
-                        <div className="bg-white border border-gray-200 rounded-lg overflow-x-auto shadow-sm">
-                          <table className="w-full text-left border-collapse table-fixed">
-                            <thead>
-                              <tr className="border-b border-gray-200 bg-[#F8FAFC] text-xs font-bold text-[#273142]">
-                                <th className="p-3 w-[151px] min-w-[151px] max-w-[151px] border-r border-gray-200 sticky left-0 bg-[#F8FAFC] z-10 whitespace-normal break-words">
-                                  Line Item / Metric
-                                </th>
-                                {uniqueYears.map((year) => (
-                                  <th key={year} className="p-3 text-right w-[120px] min-w-[120px]">
-                                    FY {year}
+
+                        {displayRows.length === 0 ? (
+                          <div className="bg-[#F8FAFC] p-12 text-center">
+                            <p className="text-[#667085] text-sm">
+                              No data uploaded for <span className="uppercase font-semibold">{activeTab}</span>.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse table-fixed">
+                              <thead>
+                                {/* FIX 6: Corporate Header Styling on Column Headers */}
+                                <tr className="border-b border-gray-300 bg-[#273142] text-white text-xs font-bold">
+                                  <th className="p-3 w-[151px] min-w-[151px] max-w-[151px] border-r border-gray-600 sticky left-0 bg-[#273142] z-10 whitespace-normal break-words">
+                                    Line Item / Metric
                                   </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200 text-xs font-mono">
-                              {displayRows.map((row, idx) => {
-                                if (row.isHeader) {
+                                  {/* FIX 2: Latest year appears first */}
+                                  {uniqueYears.map((year) => (
+                                    <th key={year} className="p-3 text-right w-[120px] min-w-[120px]">
+                                      FY {year}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              {/* FIX 7: Horizontal Row Demarcation Grid Lines */}
+                              <tbody className="divide-y divide-gray-200 text-xs font-mono">
+                                {displayRows.map((row, idx) => {
+                                  if (row.isHeader) {
+                                    return (
+                                      <tr key={idx} className="bg-[#F1F5F9] text-[#1E2430] font-bold border-b border-gray-200">
+                                        <td className="p-3 w-[151px] min-w-[151px] max-w-[151px] border-r border-gray-200 sticky left-0 bg-[#F1F5F9] z-10 font-sans whitespace-normal break-words uppercase tracking-wide">
+                                          {row.label}
+                                        </td>
+                                        {uniqueYears.map((yr) => (
+                                          <td key={yr} className="p-3 text-right text-[#2F6FED]">
+                                            {row.values[yr] || '-'}
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    );
+                                  }
+
+                                  // FIX 8: Total Rows formatted cleanly with standard borders
+                                  if (row.isTotal) {
+                                    return (
+                                      <tr key={idx} className="bg-[#0F8B8D]/10 text-[#1E2430] font-bold border-b border-gray-200">
+                                        <td className="p-3 w-[151px] min-w-[151px] max-w-[151px] border-r border-gray-200 sticky left-0 bg-[#F8FAFC] z-10 font-sans whitespace-normal break-words">
+                                          {row.label}
+                                        </td>
+                                        {uniqueYears.map((yr) => (
+                                          <td key={yr} className="p-3 text-right text-[#0F8B8D]">
+                                            {row.values[yr] || '-'}
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    );
+                                  }
+
                                   return (
-                                    <tr key={idx} className="bg-[#F1F5F9] text-[#1E2430] font-bold">
-                                      <td className="p-3 w-[151px] min-w-[151px] max-w-[151px] border-r border-gray-200 sticky left-0 bg-[#F1F5F9] z-10 font-sans whitespace-normal break-words uppercase tracking-wide">
+                                    <tr key={idx} className="hover:bg-gray-50 text-[#273142] border-b border-gray-200">
+                                      <td
+                                        className={`p-2.5 w-[151px] min-w-[151px] max-w-[151px] border-r border-gray-200 sticky left-0 bg-white z-10 font-sans whitespace-normal break-words leading-snug ${
+                                          row.indent ? 'pl-6 text-[#667085]' : ''
+                                        }`}
+                                      >
                                         {row.label}
                                       </td>
                                       {uniqueYears.map((yr) => (
-                                        <td key={yr} className="p-3 text-right text-[#2F6FED]">
+                                        <td key={yr} className="p-2.5 text-right">
                                           {row.values[yr] || '-'}
                                         </td>
                                       ))}
                                     </tr>
                                   );
-                                }
-
-                                if (row.isTotal) {
-                                  return (
-                                    <tr key={idx} className="bg-[#0F8B8D]/10 text-[#1E2430] font-bold border-t border-b-2 border-[#1E2430]">
-                                      <td className="p-3 w-[151px] min-w-[151px] max-w-[151px] border-r border-gray-200 sticky left-0 bg-[#F8FAFC] z-10 font-sans whitespace-normal break-words">
-                                        {row.label}
-                                      </td>
-                                      {uniqueYears.map((yr) => (
-                                        <td key={yr} className="p-3 text-right text-[#0F8B8D]">
-                                          {row.values[yr] || '-'}
-                                        </td>
-                                      ))}
-                                    </tr>
-                                  );
-                                }
-
-                                return (
-                                  <tr key={idx} className="hover:bg-gray-50 text-[#273142]">
-                                    <td
-                                      className={`p-2.5 w-[151px] min-w-[151px] max-w-[151px] border-r border-gray-200 sticky left-0 bg-white z-10 font-sans whitespace-normal break-words leading-snug ${
-                                        row.indent ? 'pl-6 text-[#667085]' : ''
-                                      }`}
-                                    >
-                                      {row.label}
-                                    </td>
-                                    {uniqueYears.map((yr) => (
-                                      <td key={yr} className="p-2.5 text-right">
-                                        {row.values[yr] || '-'}
-                                      </td>
-                                    ))}
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
 
                       {footnoteRow && (
                         <div className="p-3 bg-[#F8FAFC] border border-gray-200 rounded-lg text-[11px] text-[#667085] italic leading-relaxed">
                           {footnoteRow.amount_text}
                         </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* TAB 8: Reported Shareholding */}
-                  {activeTab === 'shareholding' && (
-                    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                      <div className="p-4 bg-[#F8FAFC] border-b border-gray-200 font-bold text-sm text-[#1E2430]">
-                        Major & Significant Shareholdings
-                      </div>
-                      {shareholders.length === 0 ? (
-                        <div className="p-8 text-center text-xs text-[#667085]">No shareholding data recorded.</div>
-                      ) : (
-                        <table className="w-full text-left border-collapse text-xs">
-                          <thead>
-                            <tr className="bg-[#F1F5F9] text-[#273142] border-b border-gray-200 font-bold">
-                              <th className="p-3">Shareholder Name</th>
-                              <th className="p-3 text-right">Shareholding (%)</th>
-                              <th className="p-3 text-right">Reporting Date</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-200 font-mono">
-                            {shareholders.map((sh) => (
-                              <tr key={sh.id} className="hover:bg-gray-50">
-                                <td className="p-3 font-bold text-[#1E2430] font-sans">{sh.shareholder_name}</td>
-                                <td className="p-3 text-right text-[#0F8B8D] font-bold">{sh.percentage}</td>
-                                <td className="p-3 text-right text-[#667085]">{sh.reporting_date}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
                       )}
                     </div>
                   )}
