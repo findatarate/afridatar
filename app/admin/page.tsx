@@ -217,7 +217,7 @@ export default function AdminPage() {
 
       if (jsonRows.length < 1) continue;
 
-      // 1. Company Overview Parser (Handles Side-by-Side Tables)
+      // 1. Company Overview Parser (Strictly separates Subsidiaries vs. Top Shareholders)
       if (tabType === 'overview') {
         // Corporate Overview (Rows 2 to 8, Cols A & B)
         for (let r = 1; r < Math.min(jsonRows.length, 9); r++) {
@@ -236,24 +236,27 @@ export default function AdminPage() {
           if (!row) continue;
           const k = row[0] ? String(row[0]).trim() : '';
           const v = row[1] ? String(row[1]).trim() : '';
-          if (k && v && k !== 'Corporate Information Item' && k !== 'Detailed Corporate Information') {
+          if (k && v && k !== 'Corporate Information Item' && k !== 'Detailed Corporate Information' && !k.includes('NR =')) {
             overviewEntries.push({ company_id: companyId, section_type: 'corp_info', field_label: k, field_value: v });
           }
         }
 
-        // Subsidiaries (Cols D, E, F - Indexes 3, 4, 5)
+        // FIX 1: Subsidiaries (Cols D, E, F - Strictly terminates when hitting Top Shareholders)
         for (let r = 10; r < jsonRows.length; r++) {
           const row = jsonRows[r];
           if (!row) continue;
           const sub = row[3] ? String(row[3]).trim() : '';
+          if (sub.toLowerCase().includes('top shareholder')) {
+            break; // Stop parsing subsidiaries when shareholders table begins
+          }
           const pct = row[4] !== undefined && row[4] !== null ? String(row[4]).trim() : '';
           const pur = row[5] ? String(row[5]).trim() : '';
-          if (sub && sub !== 'Subsidiary' && sub !== 'Subsidiaries of the company' && !sub.startsWith('Top Shareholders')) {
+          if (sub && sub !== 'Subsidiary' && sub !== 'Subsidiaries of the company') {
             subsidiariesEntries.push({ company_id: companyId, subsidiary_name: sub, shareholding_pct: pct, purpose: pur });
           }
         }
 
-        // Credit Ratings (Cols H & I - Indexes 7, 8)
+        // Credit Ratings (Cols H & I)
         for (let r = 10; r < jsonRows.length; r++) {
           const row = jsonRows[r];
           if (!row) continue;
@@ -264,18 +267,24 @@ export default function AdminPage() {
           }
         }
 
-        // Top Shareholders & Share Capital (Cols D, E, F - Indexes 3, 4, 5 starting around Row 27+)
-        for (let r = 26; r < jsonRows.length; r++) {
+        // FIX 1: Top Shareholders & Share Capital Section
+        let isShareholderSection = false;
+        for (let r = 10; r < jsonRows.length; r++) {
           const row = jsonRows[r];
           if (!row) continue;
           const name = row[3] ? String(row[3]).trim() : '';
           const val = row[4] !== undefined && row[4] !== null ? String(row[4]).trim() : '';
           const date = row[5] ? String(row[5]).trim() : '';
 
-          if (name) {
+          if (name.toLowerCase().includes('top shareholder')) {
+            isShareholderSection = true;
+            continue;
+          }
+
+          if (isShareholderSection && name) {
             if (['Total Shares in Issue', 'Authorised Share Capital', 'Share Class(es)'].includes(name)) {
               overviewEntries.push({ company_id: companyId, section_type: 'share_capital', field_label: name, field_value: val });
-            } else if (name !== 'Shareholder name' && name !== 'Top Shareholders') {
+            } else if (name !== 'Shareholder name') {
               shareholderEntries.push({
                 company_id: companyId,
                 shareholder_name: name,
@@ -288,7 +297,7 @@ export default function AdminPage() {
         }
 
         // Footnote (Col A towards bottom)
-        for (let r = 40; r < jsonRows.length; r++) {
+        for (let r = 30; r < jsonRows.length; r++) {
           const row = jsonRows[r];
           if (!row) continue;
           const fn = row[0] ? String(row[0]).trim() : '';
@@ -299,7 +308,7 @@ export default function AdminPage() {
         continue;
       }
 
-      // 2. Directors & Management Parser (Extracts Board & Senior Management)
+      // 2. Directors & Management Parser
       if (tabType === 'management') {
         let currentSection = 'Board';
 
@@ -516,7 +525,7 @@ export default function AdminPage() {
           const stmtRows = statements.filter((s) => s.statement_type.toLowerCase() === stmtType);
           if (stmtRows.length === 0) return;
 
-          const years = Array.from(new Set(stmtRows.map((s) => s.fiscal_year))).filter((y) => y !== 'ALL').sort();
+          const years = Array.from(new Set(stmtRows.map((s) => s.fiscal_year))).filter((y) => y !== 'ALL').sort((a, b) => b.localeCompare(a));
           const lineItemMap = new Map<string, Record<string, string>>();
 
           stmtRows.forEach((s) => {
