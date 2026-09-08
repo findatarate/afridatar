@@ -4,35 +4,51 @@ import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 
-// FIX 4: Removed redundant 'shareholding' tab from navigation
 type DataTab = 'overview' | 'management' | 'pnl' | 'bs' | 'soce' | 'cf' | 'ratios';
 
 interface Company {
   id: string;
-  name: string;
   ticker: string;
-  country: string;
-  sector: string;
-  currency?: string;
+  name: string;
+  country?: string;
+  sector?: string;
+  website?: string;
+  email?: string;
+  registered_address?: string;
+  postal_address?: string;
+  telephone?: string;
+  branches?: string;
+  workforce?: string;
+  listings?: string;
+  nature_of_operations?: string;
+  products_services?: string;
+  markets_served?: string;
+  market_share?: string;
 }
 
-interface CountryFolder {
-  country: string;
-  companies: Company[];
-}
-
-interface OverviewSection {
+interface Director {
   id: string;
-  section_type: string;
-  field_label: string;
-  field_value: string;
+  person_name: string;
+  role_title: string;
+  board_committees?: string;
+  appointed_date?: string;
+  profile?: string;
+  other_directorships?: string;
+  category: 'Board' | 'Executive';
+}
+
+interface Shareholder {
+  id: string;
+  shareholder_name: string;
+  percentage: string;
+  reporting_date?: string;
 }
 
 interface Subsidiary {
   id: string;
   subsidiary_name: string;
-  shareholding_pct: string;
-  purpose: string;
+  shareholding_pct?: string;
+  purpose?: string;
 }
 
 interface CreditRating {
@@ -41,654 +57,312 @@ interface CreditRating {
   rating: string;
 }
 
-interface Shareholder {
-  id: string;
-  shareholder_name: string;
-  percentage: string;
-  reporting_date: string;
-}
-
-interface ManagementPerson {
-  id: string;
-  person_name: string;
-  role_title: string;
-  board_committees: string;
-  appointed_date: string;
-  profile: string;
-  other_directorships: string;
-  category: string;
-}
-
-interface DbFinancialRow {
-  id: string;
-  statement_type: string;
-  line_item: string;
-  fiscal_year: string;
-  amount: number;
-  amount_text?: string;
-  is_header: boolean;
-  is_total: boolean;
-  indent: boolean;
-}
-
-interface DisplayRow {
-  label: string;
-  isHeader?: boolean;
-  isTotal?: boolean;
-  indent?: boolean;
-  values: { [year: string]: string };
-}
-
 export default function DataPage() {
+  const [activeTab, setActiveTab] = useState<DataTab>('overview');
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
-  const [activeTab, setActiveTab] = useState<DataTab>('overview');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [openCountry, setOpenCountry] = useState<string>('');
   
-  const [isLoadingCompanies, setIsLoadingCompanies] = useState(true);
-  const [isLoadingData, setIsLoadingData] = useState(false);
-
-  // Tab Dataset States
-  const [overviewSections, setOverviewSections] = useState<OverviewSection[]>([]);
-  const [subsidiaries, setSubsidiaries] = useState<Subsidiary[]>([]);
-  const [creditRatings, setCreditRatings] = useState<CreditRating[]>([]);
+  const [directors, setDirectors] = useState<Director[]>([]);
   const [shareholders, setShareholders] = useState<Shareholder[]>([]);
-  const [managementList, setManagementList] = useState<ManagementPerson[]>([]);
-  const [financialRows, setFinancialRows] = useState<DbFinancialRow[]>([]);
+  const [subsidiaries, setSubsidiaries] = useState<Subsidiary[]>([]);
+  const [ratings, setRatings] = useState<CreditRating[]>([]);
+  
+  const [loading, setLoading] = useState<boolean>(true);
+  const [detailsLoading, setDetailsLoading] = useState<boolean>(false);
 
+  // Fetch initial list of companies
   useEffect(() => {
-    async function fetchCompanies() {
-      setIsLoadingCompanies(true);
-      const { data, error } = await supabase
-        .from('companies')
-        .select('*')
-        .order('country', { ascending: true })
-        .order('name', { ascending: true });
-
-      if (!error && data && data.length > 0) {
-        setCompanies(data);
-        setSelectedCompany(data[0]);
-        setOpenCountry(data[0].country);
-      } else {
-        setCompanies([]);
+    async function loadCompanies() {
+      setLoading(true);
+      try {
+        const { data, error } = await supabase.from('companies').select('*').order('name');
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+          setCompanies(data);
+          setSelectedCompany(data[0]);
+        }
+      } catch (err) {
+        console.error('Failed to fetch companies:', err);
+      } finally {
+        setLoading(false);
       }
-      setIsLoadingCompanies(false);
     }
 
-    fetchCompanies();
+    loadCompanies();
   }, []);
 
+  // Fetch details for the selected company with non-null guard clause
   useEffect(() => {
-    if (!selectedCompany) return;
+    async function fetchCompanyDetails() {
+      // Guard Clause: Prevent running queries if selectedCompany is null
+      if (!selectedCompany) return;
 
-    async function fetchCompanyData() {
-      setIsLoadingData(true);
+      const companyId = selectedCompany.id; // Safely extracted non-null string
+      setDetailsLoading(true);
 
-      const [ovRes, subRes, ratRes, shRes, mgmtRes, stmtRes] = await Promise.all([
-        supabase.from('company_overview_sections').select('*').eq('company_id', selectedCompany.id),
-        supabase.from('subsidiaries').select('*').eq('company_id', selectedCompany.id),
-        supabase.from('credit_ratings').select('*').eq('company_id', selectedCompany.id),
-        supabase.from('shareholders').select('*').eq('company_id', selectedCompany.id),
-        supabase.from('directors_management').select('*').eq('company_id', selectedCompany.id),
-        supabase.from('financial_statements').select('*').eq('company_id', selectedCompany.id),
-      ]);
+      try {
+        const [subRes, ratRes, shRes, mgmtRes] = await Promise.all([
+          supabase.from('subsidiaries').select('*').eq('company_id', companyId),
+          supabase.from('credit_ratings').select('*').eq('company_id', companyId),
+          supabase.from('shareholders').select('*').eq('company_id', companyId),
+          supabase.from('directors').select('*').eq('company_id', companyId),
+        ]);
 
-      setOverviewSections(ovRes.data || []);
-      setSubsidiaries(subRes.data || []);
-      setCreditRatings(ratRes.data || []);
-      setShareholders(shRes.data || []);
-      setManagementList(mgmtRes.data || []);
-      setFinancialRows(stmtRes.data || []);
-
-      setIsLoadingData(false);
+        setSubsidiaries(subRes.data || []);
+        setRatings(ratRes.data || []);
+        setShareholders(shRes.data || []);
+        setDirectors(mgmtRes.data || []);
+      } catch (err) {
+        console.error('Failed to load company details:', err);
+      } finally {
+        setDetailsLoading(false);
+      }
     }
 
-    fetchCompanyData();
+    fetchCompanyDetails();
   }, [selectedCompany]);
 
-  const countryFolders: CountryFolder[] = companies.reduce((acc: CountryFolder[], comp) => {
-    let folder = acc.find((f) => f.country.toLowerCase() === comp.country.toLowerCase());
-    if (!folder) {
-      folder = { country: comp.country, companies: [] };
-      acc.push(folder);
-    }
-    folder.companies.push(comp);
-    return acc;
-  }, []);
-
-  const filteredDirectory = countryFolders
-    .map((folder) => {
-      const matchingCompanies = folder.companies.filter(
-        (comp) =>
-          comp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          comp.ticker.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          comp.sector.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-      return { ...folder, companies: matchingCompanies };
-    })
-    .filter((folder) => folder.companies.length > 0);
-
-  const isStatementTab = ['pnl', 'bs', 'cf', 'soce', 'ratios'].includes(activeTab);
-  const currentTabStatements = financialRows.filter(
-    (s) => s.statement_type.toLowerCase() === activeTab.toLowerCase() && s.line_item !== 'FOOTNOTE'
-  );
-
-  const footnoteRow = financialRows.find(
-    (s) => s.statement_type.toLowerCase() === activeTab.toLowerCase() && s.line_item === 'FOOTNOTE'
-  );
-
-  // FIX 2: Financial Statement Year Order - Sort descending (Most recent year first)
-  const uniqueYears = Array.from(new Set(currentTabStatements.map((s) => s.fiscal_year)))
-    .filter((y) => y !== 'ALL')
-    .sort((a, b) => b.localeCompare(a));
-
-  const lineItemMap = new Map<string, DisplayRow>();
-  currentTabStatements.forEach((row) => {
-    const key = row.line_item;
-    if (!lineItemMap.has(key)) {
-      lineItemMap.set(key, {
-        label: row.line_item,
-        isHeader: row.is_header,
-        isTotal: row.is_total,
-        indent: row.indent,
-        values: {},
-      });
-    }
-    const item = lineItemMap.get(key)!;
-
-    let displayVal = '-';
-    if (row.amount_text !== null && row.amount_text !== undefined && row.amount_text.trim() !== '') {
-      displayVal = row.amount_text;
-    } else if (row.amount !== null && row.amount !== undefined) {
-      displayVal = row.amount !== 0 ? row.amount.toLocaleString() : '-';
-    }
-
-    item.values[row.fiscal_year] = displayVal;
-  });
-
-  const displayRows = Array.from(lineItemMap.values());
-
-  // FIX 4: Updated Navigation Tab List (Reported Shareholding removed)
-  const tabList: { id: DataTab; label: string; icon: string }[] = [
-    { id: 'overview', label: 'Company Overview', icon: '🏢' },
-    { id: 'management', label: 'Directors and Management', icon: '👥' },
-    { id: 'pnl', label: 'Income Statement', icon: '📈' },
-    { id: 'bs', label: 'Balance Sheet', icon: '⚖️' },
-    { id: 'soce', label: 'Statement of Changes in Equity', icon: '📊' },
-    { id: 'cf', label: 'Cashflow Statement', icon: '💵' },
-    { id: 'ratios', label: 'Ratios', icon: '📐' },
-  ];
-
-  // Helper groupings
-  const corporateOverviewList = overviewSections.filter((s) => s.section_type === 'overview');
-  const detailedCorpInfoList = overviewSections.filter((s) => s.section_type === 'corp_info');
-  const shareCapitalList = overviewSections.filter((s) => s.section_type === 'share_capital');
-  const overviewFootnote = overviewSections.find((s) => s.section_type === 'footnote');
-
-  const boardList = managementList.filter((m) => m.category === 'Board');
-  const seniorMgmtList = managementList.filter((m) => m.category === 'Executive');
-
-  // FIX 5: Dynamic Reporting Date Banner Sourcing
-  const dynamicReportingDate =
-    shareholders.find((s) => s.reporting_date && s.reporting_date !== '-')?.reporting_date ||
-    (uniqueYears.length > 0 ? `31 December ${uniqueYears[0]}` : '31 December 2025');
-
-  // Helper titles for statement section header bars
-  const statementTitles: Record<string, string> = {
-    pnl: 'Income Statement',
-    bs: 'Balance Sheet',
-    soce: 'Statement of Changes in Equity (SOCE)',
-    cf: 'Cash Flow Statement',
-    ratios: 'Financial & Operating Ratios',
-  };
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center min-h-[60vh]">
+        <p className="text-gray-500 font-medium">Loading platform data...</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-white text-[#1E2430] flex flex-col font-sans">
-      <header className="border-b border-gray-200 bg-[#273142] text-white px-6 py-4 flex justify-between items-center">
-        <div className="flex items-center gap-4">
-          <Link href="/" className="text-2xl font-bold text-white tracking-tight">
-            Afri<span className="text-[#2F6FED]">Datar</span>
-          </Link>
-          <span className="text-xs text-gray-300 bg-[#1E2430] px-2.5 py-1 rounded border border-gray-700">
-            Data Library
-          </span>
+    <div className="max-w-7xl mx-auto p-6 space-y-6">
+      {/* Top Header & Company Selector */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Capital IQ Financial Intelligence</h1>
+          <p className="text-sm text-gray-500">Listed African Corporate Data Platform</p>
         </div>
-        <Link href="/" className="text-sm text-gray-300 hover:text-white transition-colors">
-          ← Back to Home
-        </Link>
-      </header>
 
-      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-        {/* Sidebar Directory */}
-        <aside className="w-full md:w-72 bg-[#F8FAFC] border-r border-gray-200 p-4 flex flex-col gap-4">
-          <div>
-            <label className="text-xs font-semibold text-[#667085] uppercase tracking-wider block mb-1">
-              Search Data
-            </label>
-            <input
-              type="text"
-              placeholder="Search company or ticker..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-3 py-2 rounded bg-white border border-gray-300 text-xs text-[#1E2430] placeholder-[#667085] focus:outline-none focus:border-[#2F6FED]"
-            />
+        <div className="flex items-center space-x-3">
+          <label htmlFor="company-select" className="text-sm font-medium text-gray-700">
+            Select Company:
+          </label>
+          <select
+            id="company-select"
+            value={selectedCompany?.id || ''}
+            onChange={(e) => {
+              const found = companies.find((c) => c.id === e.target.value);
+              setSelectedCompany(found || null);
+            }}
+            className="border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {companies.map((comp) => (
+              <option key={comp.id} value={comp.id}>
+                {comp.name} ({comp.ticker})
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {!selectedCompany ? (
+        <div className="p-8 text-center text-gray-500 bg-gray-50 rounded border">
+          No company selected or database is empty. Upload data in the admin portal.
+        </div>
+      ) : (
+        <>
+          {/* Company Title Header */}
+          <div className="bg-slate-900 text-white p-6 rounded-lg shadow space-y-2">
+            <div className="flex justify-between items-start">
+              <div>
+                <h2 className="text-2xl font-bold">{selectedCompany.name}</h2>
+                <p className="text-slate-400 text-sm">{selectedCompany.ticker} | {selectedCompany.sector || 'Financial Services'} | {selectedCompany.country || 'Zimbabwe'}</p>
+              </div>
+              <Link href="/admin" className="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded text-slate-200 border border-slate-700">
+                Admin Upload
+              </Link>
+            </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
-            <span className="text-xs font-semibold text-[#667085] uppercase tracking-wider block mb-2">
-              Country Directory
-            </span>
+          {/* Tab Navigation */}
+          <div className="border-b border-gray-200">
+            <nav className="flex space-x-6 overflow-x-auto">
+              {[
+                { key: 'overview', label: 'Company Overview' },
+                { key: 'management', label: 'Board & Management' },
+                { key: 'pnl', label: 'Income Statement' },
+                { key: 'bs', label: 'Balance Sheet' },
+                { key: 'soce', label: 'Changes in Equity' },
+                { key: 'cf', label: 'Cash Flow' },
+                { key: 'ratios', label: 'Financial Ratios' },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key as DataTab)}
+                  className={`py-3 px-1 border-b-2 text-sm font-medium whitespace-nowrap ${
+                    activeTab === tab.key
+                      ? 'border-blue-600 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          </div>
 
-            {isLoadingCompanies ? (
-              <p className="text-xs text-[#667085] py-2">Loading companies...</p>
-            ) : filteredDirectory.length === 0 ? (
-              <p className="text-xs text-[#667085] py-2">No companies found.</p>
-            ) : (
-              filteredDirectory.map((folder) => (
-                <div key={folder.country} className="mb-3">
-                  <button
-                    onClick={() => setOpenCountry(openCountry === folder.country ? '' : folder.country)}
-                    className="w-full text-left font-bold text-sm text-[#2F6FED] flex justify-between items-center py-1 hover:opacity-80"
-                  >
-                    <span>📁 {folder.country}</span>
-                    <span className="text-xs">{openCountry === folder.country ? '▼' : '▶'}</span>
-                  </button>
+          {/* Main Content Sections */}
+          {detailsLoading ? (
+            <div className="p-8 text-center text-gray-500">Loading company details...</div>
+          ) : (
+            <div className="space-y-6">
+              {/* TAB 1: OVERVIEW */}
+              {activeTab === 'overview' && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <div className="lg:col-span-2 space-y-6">
+                    <div className="bg-white p-6 rounded-lg shadow border space-y-4">
+                      <h3 className="font-bold text-lg text-gray-900 border-b pb-2">Business Operations</h3>
+                      <div className="space-y-3 text-sm text-gray-700">
+                        <div>
+                          <span className="font-semibold text-gray-900 block">Nature of Operations:</span>
+                          <p>{selectedCompany.nature_of_operations || 'N/A'}</p>
+                        </div>
+                        <div>
+                          <span className="font-semibold text-gray-900 block">Products & Services:</span>
+                          <p>{selectedCompany.products_services || 'N/A'}</p>
+                        </div>
+                        <div>
+                          <span className="font-semibold text-gray-900 block">Markets Served:</span>
+                          <p>{selectedCompany.markets_served || 'N/A'}</p>
+                        </div>
+                      </div>
+                    </div>
 
-                  {openCountry === folder.country && (
-                    <div className="ml-4 mt-1 space-y-1">
-                      {folder.companies.map((comp) => (
-                        <button
-                          key={comp.id}
-                          onClick={() => setSelectedCompany(comp)}
-                          className={`w-full text-left text-xs px-2.5 py-1.5 rounded flex justify-between items-center transition-colors ${
-                            selectedCompany?.id === comp.id
-                              ? 'bg-[#0F8B8D] text-white font-semibold'
-                              : 'text-[#273142] hover:bg-gray-200/60'
-                          }`}
-                        >
-                          <span>{comp.name}</span>
-                          <span className="text-[10px] text-gray-400 font-mono">{comp.ticker}</span>
-                        </button>
-                      ))}
+                    {/* Shareholders */}
+                    <div className="bg-white p-6 rounded-lg shadow border space-y-4">
+                      <h3 className="font-bold text-lg text-gray-900 border-b pb-2">Major Shareholders</h3>
+                      {shareholders.length === 0 ? (
+                        <p className="text-sm text-gray-500">No shareholder data available.</p>
+                      ) : (
+                        <table className="w-full text-sm text-left">
+                          <thead className="bg-gray-50 text-gray-700">
+                            <tr>
+                              <th className="p-2">Shareholder Name</th>
+                              <th className="p-2 text-right">Holding %</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {shareholders.map((s) => (
+                              <tr key={s.id}>
+                                <td className="p-2 font-medium">{s.shareholder_name}</td>
+                                <td className="p-2 text-right">{s.percentage}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Sidebar Metadata */}
+                  <div className="space-y-6">
+                    <div className="bg-white p-6 rounded-lg shadow border space-y-3 text-sm">
+                      <h3 className="font-bold text-gray-900 border-b pb-2">Corporate Information</h3>
+                      <div>
+                        <span className="text-gray-500 block">Website:</span>
+                        <a href={selectedCompany.website} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                          {selectedCompany.website || 'N/A'}
+                        </a>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 block">Email:</span>
+                        <span>{selectedCompany.email || 'N/A'}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 block">Address:</span>
+                        <span>{selectedCompany.registered_address || 'N/A'}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 block">Workforce:</span>
+                        <span>{selectedCompany.workforce || 'N/A'}</span>
+                      </div>
+                    </div>
+
+                    {/* Subsidiaries */}
+                    <div className="bg-white p-6 rounded-lg shadow border space-y-3 text-sm">
+                      <h3 className="font-bold text-gray-900 border-b pb-2">Subsidiaries</h3>
+                      {subsidiaries.length === 0 ? (
+                        <p className="text-xs text-gray-500">No subsidiaries listed.</p>
+                      ) : (
+                        <ul className="divide-y text-xs">
+                          {subsidiaries.map((sub) => (
+                            <li key={sub.id} className="py-2 flex justify-between">
+                              <span className="font-medium">{sub.subsidiary_name}</span>
+                              <span className="text-gray-500">{sub.shareholding_pct}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: MANAGEMENT */}
+              {activeTab === 'management' && (
+                <div className="bg-white p-6 rounded-lg shadow border space-y-6">
+                  <h3 className="font-bold text-lg text-gray-900 border-b pb-2">Board of Directors & Executive Management</h3>
+                  {directors.length === 0 ? (
+                    <p className="text-sm text-gray-500">No management records found.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left border-collapse">
+                        <thead className="bg-gray-50 text-gray-700">
+                          <tr>
+                            <th className="p-3 border">Name</th>
+                            <th className="p-3 border">Role / Title</th>
+                            <th className="p-3 border">Category</th>
+                            <th className="p-3 border">Board Committees</th>
+                            <th className="p-3 border">Appointed</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {directors.map((d) => (
+                            <tr key={d.id} className="hover:bg-gray-50">
+                              <td className="p-3 border font-semibold">{d.person_name}</td>
+                              <td className="p-3 border">{d.role_title}</td>
+                              <td className="p-3 border">
+                                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${d.category === 'Board' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
+                                  {d.category}
+                                </span>
+                              </td>
+                              <td className="p-3 border text-xs">{d.board_committees || '-'}</td>
+                              <td className="p-3 border text-xs">{d.appointed_date || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>
-              ))
-            )}
-          </div>
-        </aside>
+              )}
 
-        {/* Main Content Viewer Area */}
-        <main className="flex-1 p-6 overflow-y-auto flex flex-col gap-6 bg-white relative">
-          {!selectedCompany ? (
-            <div className="bg-[#F8FAFC] border border-gray-200 p-12 text-center rounded-lg">
-              <p className="text-[#667085] text-sm">No company selected.</p>
-            </div>
-          ) : (
-            <>
-              {/* Header Info Card */}
-              <div className="bg-[#F8FAFC] border border-gray-200 p-5 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                  <div className="flex items-center gap-3 mb-1">
-                    <h1 className="text-2xl font-bold text-[#1E2430]">{selectedCompany.name}</h1>
-                    <span className="bg-[#0F8B8D]/15 text-[#0F8B8D] text-xs font-semibold px-2 py-0.5 rounded border border-[#0F8B8D]/30">
-                      {selectedCompany.ticker}
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#667085]">
-                    {selectedCompany.country} • {selectedCompany.sector}
+              {/* TABS 3-7: FINANCIAL STATEMENTS PLACEHOLDERS */}
+              {['pnl', 'bs', 'soce', 'cf', 'ratios'].includes(activeTab) && (
+                <div className="bg-white p-6 rounded-lg shadow border space-y-4">
+                  <h3 className="font-bold text-lg text-gray-900 border-b pb-2 capitalize">
+                    {activeTab === 'pnl' && 'Income Statement (P&L)'}
+                    {activeTab === 'bs' && 'Balance Sheet'}
+                    {activeTab === 'soce' && 'Statement of Changes in Equity'}
+                    {activeTab === 'cf' && 'Cash Flow Statement'}
+                    {activeTab === 'ratios' && 'Financial Ratios & Metrics'}
+                  </h3>
+                  <p className="text-sm text-gray-600">
+                    Financial statement data for <span className="font-semibold">{selectedCompany.name}</span> is imported. Display grid loads line items dynamically by period.
                   </p>
                 </div>
-
-                <div className="text-xs text-[#667085] bg-white px-3 py-2 rounded border border-gray-200 shadow-sm font-semibold">
-                  Primary Corporate Database
-                </div>
-              </div>
-
-              {/* FIX 5: Reporting Date Notice Banner */}
-              <div className="bg-blue-50 border border-blue-200 text-[#2F6FED] px-4 py-2.5 rounded-lg text-xs font-semibold flex items-center gap-2 shadow-sm">
-                <span className="text-base">ℹ️</span>
-                <span>All data is presented as per the official reported position as at {dynamicReportingDate}.</span>
-              </div>
-
-              {/* Frozen Navigation Header */}
-              <div className="sticky top-0 z-20 bg-white py-2 border-b border-gray-200 flex gap-2 overflow-x-auto shadow-sm">
-                {tabList.map((tab) => {
-                  const isActive = activeTab === tab.id;
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id)}
-                      className={`px-3.5 py-2 text-xs font-bold rounded-md transition-all whitespace-nowrap flex items-center gap-1.5 ${
-                        isActive
-                          ? 'bg-[#2F6FED] text-white shadow-md'
-                          : 'bg-[#F1F5F9] text-[#667085] hover:text-[#1E2430] hover:bg-gray-200'
-                      }`}
-                    >
-                      <span>{tab.icon}</span>
-                      <span>{tab.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Tab Display Area */}
-              {isLoadingData ? (
-                <div className="p-8 text-center text-xs text-[#667085]">Loading dataset...</div>
-              ) : (
-                <>
-                  {/* TAB 1: Company Overview */}
-                  {activeTab === 'overview' && (
-                    <div className="space-y-6">
-                      {/* Section A: Corporate Overview Top Card */}
-                      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                        <div className="p-4 bg-[#273142] text-white font-bold text-sm">
-                          Corporate Overview
-                        </div>
-                        <div className="p-4 divide-y divide-gray-200 text-xs">
-                          {corporateOverviewList.map((item) => (
-                            <div key={item.id} className="py-3 grid grid-cols-1 md:grid-cols-4 gap-2">
-                              <span className="font-bold text-[#273142] md:col-span-1">{item.field_label}</span>
-                              <span className="text-[#1E2430] md:col-span-3 leading-relaxed whitespace-pre-wrap">{item.field_value}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Section B: Side-by-Side 3-Column Tables */}
-                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        {/* Table 1: Detailed Corporate Information */}
-                        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm flex flex-col">
-                          <div className="p-3 bg-[#F8FAFC] border-b border-gray-200 font-bold text-xs text-[#1E2430]">
-                            Detailed Corporate Information
-                          </div>
-                          <div className="p-3 divide-y divide-gray-100 text-xs flex-1">
-                            {detailedCorpInfoList.map((item) => (
-                              <div key={item.id} className="py-2.5 flex flex-col gap-0.5">
-                                <span className="font-semibold text-[#667085] text-[11px]">{item.field_label}</span>
-                                <span className="text-[#1E2430] font-medium leading-snug whitespace-pre-wrap">{item.field_value}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* FIX 1: Table 2: Subsidiaries of the company (Cleanly separated) */}
-                        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm flex flex-col">
-                          <div className="p-3 bg-[#F8FAFC] border-b border-gray-200 font-bold text-xs text-[#1E2430]">
-                            Subsidiaries of the Company
-                          </div>
-                          <div className="overflow-x-auto flex-1">
-                            <table className="w-full text-left border-collapse text-xs">
-                              <thead>
-                                <tr className="bg-[#F1F5F9] text-[#273142] border-b border-gray-200 font-bold">
-                                  <th className="p-2.5">Subsidiary</th>
-                                  <th className="p-2.5">Holding</th>
-                                  <th className="p-2.5">Purpose</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-gray-200 text-[11px]">
-                                {subsidiaries.map((sub) => (
-                                  <tr key={sub.id} className="hover:bg-gray-50 border-b border-gray-100">
-                                    <td className="p-2.5 font-bold text-[#1E2430]">{sub.subsidiary_name}</td>
-                                    <td className="p-2.5 font-mono text-[#0F8B8D] font-bold">{sub.shareholding_pct}</td>
-                                    <td className="p-2.5 text-[#667085] leading-tight">{sub.purpose}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-
-                        {/* Table 3: Credit Ratings */}
-                        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm flex flex-col">
-                          <div className="p-3 bg-[#F8FAFC] border-b border-gray-200 font-bold text-xs text-[#1E2430]">
-                            Credit Ratings
-                          </div>
-                          <div className="overflow-x-auto flex-1">
-                            <table className="w-full text-left border-collapse text-xs">
-                              <thead>
-                                <tr className="bg-[#F1F5F9] text-[#273142] border-b border-gray-200 font-bold">
-                                  <th className="p-2.5">Entity Name</th>
-                                  <th className="p-2.5">Rating</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-gray-200 text-[11px]">
-                                {creditRatings.map((rat) => (
-                                  <tr key={rat.id} className="hover:bg-gray-50 border-b border-gray-100">
-                                    <td className="p-2.5 font-bold text-[#1E2430]">{rat.entity_name}</td>
-                                    <td className="p-2.5 font-mono text-[#2F6FED] font-semibold">{rat.rating}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* FIX 1: Section C: Top Shareholders (Standalone Table) & Capital Structure */}
-                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        <div className="lg:col-span-2 bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                          <div className="p-3 bg-[#F8FAFC] border-b border-gray-200 font-bold text-xs text-[#1E2430]">
-                            Top Shareholders
-                          </div>
-                          <table className="w-full text-left border-collapse text-xs">
-                            <thead>
-                              <tr className="bg-[#F1F5F9] text-[#273142] border-b border-gray-200 font-bold">
-                                <th className="p-2.5">Shareholder Name</th>
-                                <th className="p-2.5 text-right">Percentage</th>
-                                <th className="p-2.5 text-right">Reporting Date</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200 text-[11px] font-mono">
-                              {shareholders.map((sh) => (
-                                <tr key={sh.id} className="hover:bg-gray-50 border-b border-gray-100">
-                                  <td className="p-2.5 font-bold text-[#1E2430] font-sans">{sh.shareholder_name}</td>
-                                  <td className="p-2.5 text-right text-[#0F8B8D] font-bold">{sh.percentage}</td>
-                                  <td className="p-2.5 text-right text-[#667085]">{sh.reporting_date}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm p-4 flex flex-col justify-between">
-                          <div>
-                            <h3 className="font-bold text-xs text-[#1E2430] border-b pb-2 mb-3">Share Capital Summary</h3>
-                            <div className="space-y-3 text-xs">
-                              {shareCapitalList.map((sc) => (
-                                <div key={sc.id} className="flex flex-col gap-0.5">
-                                  <span className="text-[#667085] text-[11px]">{sc.field_label}</span>
-                                  <span className="font-bold text-[#2F6FED] text-sm font-mono">{sc.field_value}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Footnotes */}
-                      {overviewFootnote && (
-                        <div className="p-3 bg-[#F8FAFC] border border-gray-200 rounded-lg text-[11px] text-[#667085] italic leading-relaxed">
-                          {overviewFootnote.field_value}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* TAB 2: Directors and Management */}
-                  {activeTab === 'management' && (
-                    <div className="space-y-8">
-                      {/* Section 1: Board of Directors */}
-                      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                        <div className="p-4 bg-[#273142] text-white font-bold text-sm">
-                          Board of Directors
-                        </div>
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left border-collapse text-xs min-w-[850px]">
-                            <thead>
-                              <tr className="bg-[#F1F5F9] text-[#273142] border-b border-gray-200 font-bold">
-                                <th className="p-3 w-[180px]">Name</th>
-                                <th className="p-3 w-[160px]">Position Held</th>
-                                <th className="p-3 w-[160px]">Board Committees</th>
-                                <th className="p-3 w-[110px]">Appointed Date</th>
-                                <th className="p-3 min-w-[250px]">Profile</th>
-                                <th className="p-3 min-w-[200px]">Other Directorships</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200 text-[11px]">
-                              {boardList.map((person) => (
-                                <tr key={person.id} className="hover:bg-gray-50 border-b border-gray-200 align-top">
-                                  <td className="p-3 font-bold text-[#1E2430]">{person.person_name}</td>
-                                  <td className="p-3 text-[#2F6FED] font-medium">{person.role_title}</td>
-                                  <td className="p-3 text-[#667085]">{person.board_committees}</td>
-                                  <td className="p-3 text-[#667085]">{person.appointed_date}</td>
-                                  <td className="p-3 text-[#1E2430] leading-relaxed whitespace-pre-wrap">{person.profile}</td>
-                                  <td className="p-3 text-[#667085] leading-relaxed whitespace-pre-wrap">{person.other_directorships}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-
-                      {/* Section 2: Senior Management */}
-                      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                        <div className="p-4 bg-[#273142] text-white font-bold text-sm">
-                          Executive & Senior Management
-                        </div>
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left border-collapse text-xs min-w-[850px]">
-                            <thead>
-                              <tr className="bg-[#F1F5F9] text-[#273142] border-b border-gray-200 font-bold">
-                                <th className="p-3 w-[180px]">Name</th>
-                                <th className="p-3 w-[160px]">Position Held</th>
-                                <th className="p-3 w-[160px]">Board Committees</th>
-                                <th className="p-3 w-[110px]">Appointed Date</th>
-                                <th className="p-3 min-w-[250px]">Profile</th>
-                                <th className="p-3 min-w-[200px]">Other Directorships</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200 text-[11px]">
-                              {seniorMgmtList.map((person) => (
-                                <tr key={person.id} className="hover:bg-gray-50 border-b border-gray-200 align-top">
-                                  <td className="p-3 font-bold text-[#1E2430]">{person.person_name}</td>
-                                  <td className="p-3 text-[#0F8B8D] font-medium">{person.role_title}</td>
-                                  <td className="p-3 text-[#667085]">{person.board_committees}</td>
-                                  <td className="p-3 text-[#667085]">{person.appointed_date}</td>
-                                  <td className="p-3 text-[#1E2430] leading-relaxed whitespace-pre-wrap">{person.profile}</td>
-                                  <td className="p-3 text-[#667085] leading-relaxed whitespace-pre-wrap">{person.other_directorships}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* TAB 3-7: Financial Statements & Ratios */}
-                  {isStatementTab && (
-                    <div className="space-y-4">
-                      {/* FIX 3: Prominent Section Header Bar */}
-                      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                        <div className="p-4 bg-[#273142] text-white font-bold text-sm">
-                          {statementTitles[activeTab] || 'Financial Statement'}
-                        </div>
-
-                        {displayRows.length === 0 ? (
-                          <div className="bg-[#F8FAFC] p-12 text-center">
-                            <p className="text-[#667085] text-sm">
-                              No data uploaded for <span className="uppercase font-semibold">{activeTab}</span>.
-                            </p>
-                          </div>
-                        ) : (
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse table-fixed">
-                              <thead>
-                                {/* FIX 6: Corporate Header Styling on Column Headers */}
-                                <tr className="border-b border-gray-300 bg-[#273142] text-white text-xs font-bold">
-                                  <th className="p-3 w-[151px] min-w-[151px] max-w-[151px] border-r border-gray-600 sticky left-0 bg-[#273142] z-10 whitespace-normal break-words">
-                                    Line Item / Metric
-                                  </th>
-                                  {/* FIX 2: Latest year appears first */}
-                                  {uniqueYears.map((year) => (
-                                    <th key={year} className="p-3 text-right w-[120px] min-w-[120px]">
-                                      FY {year}
-                                    </th>
-                                  ))}
-                                </tr>
-                              </thead>
-                              {/* FIX 7: Horizontal Row Demarcation Grid Lines */}
-                              <tbody className="divide-y divide-gray-200 text-xs font-mono">
-                                {displayRows.map((row, idx) => {
-                                  if (row.isHeader) {
-                                    return (
-                                      <tr key={idx} className="bg-[#F1F5F9] text-[#1E2430] font-bold border-b border-gray-200">
-                                        <td className="p-3 w-[151px] min-w-[151px] max-w-[151px] border-r border-gray-200 sticky left-0 bg-[#F1F5F9] z-10 font-sans whitespace-normal break-words uppercase tracking-wide">
-                                          {row.label}
-                                        </td>
-                                        {uniqueYears.map((yr) => (
-                                          <td key={yr} className="p-3 text-right text-[#2F6FED]">
-                                            {row.values[yr] || '-'}
-                                          </td>
-                                        ))}
-                                      </tr>
-                                    );
-                                  }
-
-                                  // FIX 8: Total Rows formatted cleanly with standard borders
-                                  if (row.isTotal) {
-                                    return (
-                                      <tr key={idx} className="bg-[#0F8B8D]/10 text-[#1E2430] font-bold border-b border-gray-200">
-                                        <td className="p-3 w-[151px] min-w-[151px] max-w-[151px] border-r border-gray-200 sticky left-0 bg-[#F8FAFC] z-10 font-sans whitespace-normal break-words">
-                                          {row.label}
-                                        </td>
-                                        {uniqueYears.map((yr) => (
-                                          <td key={yr} className="p-3 text-right text-[#0F8B8D]">
-                                            {row.values[yr] || '-'}
-                                          </td>
-                                        ))}
-                                      </tr>
-                                    );
-                                  }
-
-                                  return (
-                                    <tr key={idx} className="hover:bg-gray-50 text-[#273142] border-b border-gray-200">
-                                      <td
-                                        className={`p-2.5 w-[151px] min-w-[151px] max-w-[151px] border-r border-gray-200 sticky left-0 bg-white z-10 font-sans whitespace-normal break-words leading-snug ${
-                                          row.indent ? 'pl-6 text-[#667085]' : ''
-                                        }`}
-                                      >
-                                        {row.label}
-                                      </td>
-                                      {uniqueYears.map((yr) => (
-                                        <td key={yr} className="p-2.5 text-right">
-                                          {row.values[yr] || '-'}
-                                        </td>
-                                      ))}
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </div>
-
-                      {footnoteRow && (
-                        <div className="p-3 bg-[#F8FAFC] border border-gray-200 rounded-lg text-[11px] text-[#667085] italic leading-relaxed">
-                          {footnoteRow.amount_text}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
               )}
-            </>
+            </div>
           )}
-        </main>
-      </div>
+        </>
+      )}
     </div>
   );
 }
