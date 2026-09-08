@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { importCompanyWorkbook } from '@/lib/services/excelImporter';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic'; // Prevents Next.js build pre-rendering
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -16,7 +19,7 @@ export async function POST(req: NextRequest) {
     const result = await importCompanyWorkbook(buffer);
 
     return NextResponse.json({
-      message: `Workbook '${file.name}' successfully imported to Capital IQ schema!`,
+      message: `Workbook '${file.name}' successfully imported!`,
       result,
     });
   } catch (error: any) {
