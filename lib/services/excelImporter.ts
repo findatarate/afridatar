@@ -4,12 +4,17 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 export async function importCompanyWorkbook(fileBuffer: Buffer) {
   const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
 
-  // 1. Company Overview
+  // 1. Company Overview Sheet
   const overviewSheet = workbook.Sheets['Company Overview'];
   if (!overviewSheet) throw new Error("Missing 'Company Overview' sheet.");
 
-  const ovRows: any[][] = XLSX.utils.sheet_to_json(overviewSheet, { header: 1 });
-  const getCell = (r: number, c: number) => (ovRows[r]?.[c] !== undefined ? String(ovRows[r][c]).trim() : '');
+  const ovRows: (string | number | undefined)[][] = XLSX.utils.sheet_to_json(overviewSheet, { header: 1 });
+  const getCell = (r: number, c: number): string => {
+    const row = ovRows[r];
+    if (!row) return '';
+    const cell = row[c];
+    return cell !== undefined && cell !== null ? String(cell).trim() : '';
+  };
 
   const companyName = getCell(2, 1) || 'CBZ Holdings Limited';
   const natureOps = getCell(3, 1);
@@ -51,9 +56,10 @@ export async function importCompanyWorkbook(fileBuffer: Buffer) {
     .select('id')
     .single();
 
-  if (compErr || !company) throw new Error(`Company creation failed: ${compErr?.message}`);
+  if (compErr || !company) throw new Error(`Company creation failed: ${compErr?.message || 'Unknown error'}`);
   const companyId = company.id;
 
+  // Clear existing records before importing new ones
   await Promise.all([
     supabaseAdmin.from('shareholders').delete().eq('company_id', companyId),
     supabaseAdmin.from('subsidiaries').delete().eq('company_id', companyId),
@@ -61,7 +67,8 @@ export async function importCompanyWorkbook(fileBuffer: Buffer) {
     supabaseAdmin.from('directors').delete().eq('company_id', companyId),
   ]);
 
-  const shareholders = [];
+  // Parse Shareholders (Cols D, E, F)
+  const shareholders: Array<{ company_id: string; shareholder_name: string; percentage: string; reporting_date: string }> = [];
   for (let r = 11; r < ovRows.length; r++) {
     const name = getCell(r, 3);
     const pct = getCell(r, 4);
@@ -72,7 +79,8 @@ export async function importCompanyWorkbook(fileBuffer: Buffer) {
   }
   if (shareholders.length > 0) await supabaseAdmin.from('shareholders').insert(shareholders);
 
-  const subsidiaries = [];
+  // Parse Subsidiaries (Cols H, I, J)
+  const subsidiaries: Array<{ company_id: string; subsidiary_name: string; shareholding_pct: string; purpose: string }> = [];
   for (let r = 11; r < ovRows.length; r++) {
     const subName = getCell(r, 7);
     const holding = getCell(r, 8);
@@ -83,7 +91,8 @@ export async function importCompanyWorkbook(fileBuffer: Buffer) {
   }
   if (subsidiaries.length > 0) await supabaseAdmin.from('subsidiaries').insert(subsidiaries);
 
-  const ratings = [];
+  // Parse Credit Ratings (Cols L, M)
+  const ratings: Array<{ company_id: string; entity_name: string; rating: string }> = [];
   for (let r = 11; r < ovRows.length; r++) {
     const entity = getCell(r, 11);
     const rating = getCell(r, 12);
@@ -93,15 +102,26 @@ export async function importCompanyWorkbook(fileBuffer: Buffer) {
   }
   if (ratings.length > 0) await supabaseAdmin.from('credit_ratings').insert(ratings);
 
-  // 2. Directors and Management
+  // 2. Directors and Management Sheet
   const dmSheet = workbook.Sheets['Directors and Management'];
   if (dmSheet) {
-    const dmRows: any[][] = XLSX.utils.sheet_to_json(dmSheet, { header: 1 });
+    const dmRows: (string | number | undefined)[][] = XLSX.utils.sheet_to_json(dmSheet, { header: 1 });
     let category: 'Board' | 'Executive' = 'Board';
-    const directorsList = [];
+    const directorsList: Array<{
+      company_id: string;
+      person_name: string;
+      role_title: string;
+      board_committees: string;
+      appointed_date: string;
+      profile: string;
+      other_directorships: string;
+      category: 'Board' | 'Executive';
+    }> = [];
 
     for (let r = 1; r < dmRows.length; r++) {
-      const name = dmRows[r]?.[0] ? String(dmRows[r][0]).trim() : '';
+      const row = dmRows[r];
+      if (!row) continue;
+      const name = row[0] !== undefined && row[0] !== null ? String(row[0]).trim() : '';
       if (!name) continue;
 
       if (name.toLowerCase() === 'name') {
@@ -112,11 +132,11 @@ export async function importCompanyWorkbook(fileBuffer: Buffer) {
       directorsList.push({
         company_id: companyId,
         person_name: name,
-        role_title: dmRows[r]?.[1] ? String(dmRows[r][1]).trim() : '',
-        board_committees: dmRows[r]?.[2] ? String(dmRows[r][2]).trim() : '',
-        appointed_date: dmRows[r]?.[3] ? String(dmRows[r][3]).trim() : '',
-        profile: dmRows[r]?.[4] ? String(dmRows[r][4]).trim() : '',
-        other_directorships: dmRows[r]?.[5] ? String(dmRows[r][5]).trim() : '',
+        role_title: row[1] !== undefined && row[1] !== null ? String(row[1]).trim() : '',
+        board_committees: row[2] !== undefined && row[2] !== null ? String(row[2]).trim() : '',
+        appointed_date: row[3] !== undefined && row[3] !== null ? String(row[3]).trim() : '',
+        profile: row[4] !== undefined && row[4] !== null ? String(row[4]).trim() : '',
+        other_directorships: row[5] !== undefined && row[5] !== null ? String(row[5]).trim() : '',
         category,
       });
     }
@@ -126,7 +146,7 @@ export async function importCompanyWorkbook(fileBuffer: Buffer) {
   // 3. Financial Statements & Ratios
   const statements = [
     { name: 'Income Statement', code: 'pnl' },
-    { name: 'Balance Sheet', code: 'code' },
+    { name: 'Balance Sheet', code: 'bs' },
     { name: 'Statement of Changes in Equity', code: 'soce' },
     { name: 'Cashflow Statement', code: 'cf' },
     { name: 'Ratios', code: 'ratios' },
@@ -136,7 +156,7 @@ export async function importCompanyWorkbook(fileBuffer: Buffer) {
     const sheet = workbook.Sheets[stmt.name];
     if (!sheet) continue;
 
-    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+    const rows: (string | number | undefined)[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
     if (rows.length < 9) continue;
 
     const periodEndings = rows[0].slice(1);
@@ -166,7 +186,7 @@ export async function importCompanyWorkbook(fileBuffer: Buffer) {
             period_type: 'FY',
             period_end_date: pStr,
             accounting_method: String(accountingMethods[c] || 'Historical'),
-            period_length_months: parseInt(periodLengths[c] || 12, 10),
+            period_length_months: parseInt(String(periodLengths[c] || 12), 10),
             reporting_currency: String(currencies[c] || 'ZWG'),
             auditor_name: String(auditors[c] || ''),
             audit_opinion: String(opinions[c] || ''),
@@ -186,7 +206,7 @@ export async function importCompanyWorkbook(fileBuffer: Buffer) {
 
       const lineLabel = String(row[0]).trim();
       const lineCode = `${stmt.code}_${lineLabel.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
-      const isHeader = lineLabel === lineLabel.toUpperCase() && !row.slice(1).some((v) => v !== null && v !== '');
+      const isHeader = lineLabel === lineLabel.toUpperCase() && !row.slice(1).some((v) => v !== null && v !== undefined && v !== '');
       const isTotal = lineLabel.toLowerCase().includes('total') || lineLabel.toLowerCase().includes('profit');
 
       const { data: lineItem } = await supabaseAdmin
